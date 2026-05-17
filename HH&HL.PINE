@@ -1,0 +1,151 @@
+//@version=5
+indicator("HA Fractal Market Structure", overlay=true, max_labels_count=500)
+
+// --- קלט: מרחק מינימלי בין פיבוטים ---
+minBarsBetweenPivots = input.int(5, "Min Bars Between Pivots", minval=1)
+
+// --- קבלת מחירים אמיתיים (מנותקים מסוג הגרף) ---
+trueTicker = ticker.new(syminfo.prefix, syminfo.ticker)
+[trueOpen, trueHigh, trueLow, trueClose] = request.security(trueTicker, timeframe.period, [open, high, low, close])
+
+// --- Heikin Ashi Calculation (מבוסס על מחירים אמיתיים) ---
+haClose = (trueOpen + trueHigh + trueLow + trueClose) / 4
+var float haOpen = na
+haOpen := na(haOpen[1]) ? (trueOpen + trueClose) / 2 : (haOpen[1] + haClose[1]) / 2
+
+isGreenHA = haClose > haOpen
+isRedHA   = haClose < haOpen
+
+// --- מונים לרצפים מיידיים (לצורך זיהוי 2 נרות) ---
+var int greenRun = 0
+var int redRun   = 0
+
+greenRun := isGreenHA ? greenRun[1] + 1 : 0
+redRun   := isRedHA   ? redRun[1] + 1   : 0
+
+// --- ניהול מגמה מורחבת: שינוי כיוון רק אחרי 2 נרות נגדיים ---
+var int trend         = 0   // 1 = עליות, -1 = ירידות
+var int trendBars     = 0
+var int lastUpWave    = 0
+var int lastDownWave  = 0
+
+// --- דגלים זמניים לסריקה ---
+var bool scanHighNow = false
+var bool scanLowNow  = false
+
+// לוגיקת מהפך
+if trend == 0
+    if isGreenHA
+        trend := 1
+        trendBars := 1
+        lastUpWave := 0
+    else if isRedHA
+        trend := -1
+        trendBars := 1
+        lastDownWave := 0
+else if trend == 1
+    if isGreenHA
+        trendBars := trendBars + 1
+    else if isRedHA
+        trendBars := trendBars + 1
+        if redRun == 2
+            bool complexTransition = isRedHA[0] and isRedHA[1] and isGreenHA[2] and isRedHA[3]
+            lastUpWave := trendBars - 2
+            scanHighNow := true
+            trend := -1
+            trendBars := complexTransition ? 4 : 2
+else if trend == -1
+    if isRedHA
+        trendBars := trendBars + 1
+    else if isGreenHA
+        trendBars := trendBars + 1
+        if greenRun == 2
+            bool complexTransition = isGreenHA[0] and isGreenHA[1] and isRedHA[2] and isGreenHA[3]
+            lastDownWave := trendBars - 2
+            scanLowNow := true
+            trend := 1
+            trendBars := complexTransition ? 4 : 2
+
+// --- משתני מצב למבנה השוק ---
+var float lastPivotHigh    = na
+var float lastPivotLow     = na
+var int   lastPivotHighBar = na
+var int   lastPivotLowBar  = na
+var float prevPivotHigh    = na
+var float prevPivotLow     = na
+var label lastHighLabel    = na
+var label lastLowLabel     = na
+
+// --- Visuals ---
+colorHigh = color.new(#c23131, 30)
+colorLow  = color.new(#0a846d, 30)
+
+// --- High Detection (עם איחוד) ---
+if scanHighNow
+    scanHighNow := false
+    int windowSize = lastUpWave + 2
+    
+    float highestVal = trueHigh[0]
+    int highestIdx = 0
+    
+    for i = 0 to 200
+        if i < windowSize
+            if trueHigh[i] > highestVal
+                highestVal := trueHigh[i]
+                highestIdx := i
+        else
+            break
+
+    int pivotBarIndex = bar_index - highestIdx
+
+    // בדיקת מרחק מהשיא הקודם
+    if not na(lastPivotHighBar) and (pivotBarIndex - lastPivotHighBar <= minBarsBetweenPivots)
+        // איחוד: שומרים על הגבוה יותר
+        if highestVal > lastPivotHigh
+            // החדש גבוה יותר – מחליפים
+            label.delete(lastHighLabel)
+            string labelText = na(prevPivotHigh) ? "H" : (highestVal > prevPivotHigh ? "HH" : "LH")
+            lastHighLabel := label.new(bar_index[highestIdx], trueHigh[highestIdx], text=labelText, color=colorHigh, textcolor=color.white, style=label.style_label_down, yloc=yloc.price, size=size.small)
+            lastPivotHigh    := highestVal
+            lastPivotHighBar := pivotBarIndex
+            // prevPivotHigh נותר כפי שהוא
+    else
+        // שיא תקף, לא צמוד
+        string labelText = na(lastPivotHigh) ? "H" : (highestVal > lastPivotHigh ? "HH" : "LH")
+        lastHighLabel := label.new(bar_index[highestIdx], trueHigh[highestIdx], text=labelText, color=colorHigh, textcolor=color.white, style=label.style_label_down, yloc=yloc.price, size=size.small)
+        prevPivotHigh    := lastPivotHigh
+        lastPivotHigh    := highestVal
+        lastPivotHighBar := pivotBarIndex
+
+// --- Low Detection (עם איחוד) ---
+if scanLowNow
+    scanLowNow := false
+    int windowSize = lastDownWave + 2
+    
+    float lowestVal = trueLow[0]
+    int lowestIdx = 0
+    
+    for i = 0 to 200
+        if i < windowSize
+            if trueLow[i] < lowestVal
+                lowestVal := trueLow[i]
+                lowestIdx := i
+        else
+            break
+
+    int pivotBarIndex = bar_index - lowestIdx
+
+    if not na(lastPivotLowBar) and (pivotBarIndex - lastPivotLowBar <= minBarsBetweenPivots)
+        // איחוד: שומרים על הנמוך יותר
+        if lowestVal < lastPivotLow
+            label.delete(lastLowLabel)
+            string labelText = na(prevPivotLow) ? "L" : (lowestVal > prevPivotLow ? "HL" : "LL")
+            lastLowLabel := label.new(bar_index[lowestIdx], trueLow[lowestIdx], text=labelText, color=colorLow, textcolor=color.white, style=label.style_label_up, yloc=yloc.price, size=size.small)
+            lastPivotLow    := lowestVal
+            lastPivotLowBar := pivotBarIndex
+    else
+        string labelText = na(lastPivotLow) ? "L" : (lowestVal > lastPivotLow ? "HL" : "LL")
+        lastLowLabel := label.new(bar_index[lowestIdx], trueLow[lowestIdx], text=labelText, color=colorLow, textcolor=color.white, style=label.style_label_up, yloc=yloc.price, size=size.small)
+        prevPivotLow    := lastPivotLow
+        lastPivotLow    := lowestVal
+        lastPivotLowBar := pivotBarIndex
