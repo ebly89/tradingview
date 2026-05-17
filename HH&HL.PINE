@@ -4,6 +4,9 @@ indicator("HA Fractal Market Structure", overlay=true, max_labels_count=500)
 // --- קלט: מרחק מינימלי בין פיבוטים ---
 minBarsBetweenPivots = input.int(5, "Min Bars Between Pivots", minval=1)
 
+// --- קלט: אחוז מרחק מינימלי לזיהוי רטרואקטיבי ---
+retroPercentThreshold = input.float(2.0, "Retroactive Pivot Min Distance (%)", minval=0.1, step=0.1) / 100
+
 // --- קבלת מחירים אמיתיים (מנותקים מסוג הגרף) ---
 trueTicker = ticker.new(syminfo.prefix, syminfo.ticker)
 [trueOpen, trueHigh, trueLow, trueClose] = request.security(trueTicker, timeframe.period, [open, high, low, close])
@@ -76,9 +79,36 @@ var float prevPivotLow     = na
 var label lastHighLabel    = na
 var label lastLowLabel     = na
 
+// --- משתנים לזיהוי רטרואקטיבי ---
+var float retroPivotA_Price = na
+var int   retroPivotA_Bar   = na
+var bool  retroPivotA_IsHigh = false
+var float retroPivotB_Price = na
+var int   retroPivotB_Bar   = na
+var bool  retroPivotB_IsHigh = false
+var float retroPivotC_Price = na
+var int   retroPivotC_Bar   = na
+var bool  retroPivotC_IsHigh = false
+var label retroLabelA = na
+var label retroLabelB = na
+var label retroLabelC = na
+
 // --- Visuals ---
 colorHigh = color.new(#c23131, 30)
 colorLow  = color.new(#0a846d, 30)
+colorRetro = color.new(#9b59b6, 30)
+
+// פונקציה לחישוב תווית מבנה שוק
+getStructureLabel(float currentPivot, float prevPivot, float prevPrevPivot, bool isHigh) =>
+    string labelTxt = ""
+    if na(prevPivot)
+        labelTxt := isHigh ? "H" : "L"
+    else
+        if isHigh
+            labelTxt := currentPivot > prevPivot ? "HH" : "LH"
+        else
+            labelTxt := currentPivot > prevPivot ? "HL" : "LL"
+    labelTxt
 
 // --- High Detection (עם איחוד) ---
 if scanHighNow
@@ -104,18 +134,69 @@ if scanHighNow
         if highestVal > lastPivotHigh
             // החדש גבוה יותר – מחליפים
             label.delete(lastHighLabel)
-            string labelText = na(prevPivotHigh) ? "H" : (highestVal > prevPivotHigh ? "HH" : "LH")
+            string labelText = getStructureLabel(highestVal, prevPivotHigh, na, true)
             lastHighLabel := label.new(bar_index[highestIdx], trueHigh[highestIdx], text=labelText, color=colorHigh, textcolor=color.white, style=label.style_label_down, yloc=yloc.price, size=size.small)
             lastPivotHigh    := highestVal
             lastPivotHighBar := pivotBarIndex
             // prevPivotHigh נותר כפי שהוא
     else
         // שיא תקף, לא צמוד
-        string labelText = na(lastPivotHigh) ? "H" : (highestVal > lastPivotHigh ? "HH" : "LH")
+        string labelText = getStructureLabel(highestVal, lastPivotHigh, prevPivotHigh, true)
         lastHighLabel := label.new(bar_index[highestIdx], trueHigh[highestIdx], text=labelText, color=colorHigh, textcolor=color.white, style=label.style_label_down, yloc=yloc.price, size=size.small)
         prevPivotHigh    := lastPivotHigh
         lastPivotHigh    := highestVal
         lastPivotHighBar := pivotBarIndex
+    
+    // --- מנגנון רטרואקטיבי: חיפוש אחר פיבוט B (שפל) בתוך הגל הירוק שהסתיים ---
+    // Point A הוא השיא שנמצא, עכשיו מחפשים את השפל הנמוך ביותר בגל (Point B)
+    float lowestInWave = trueLow[0]
+    int lowestInWaveIdx = 0
+    for i = 0 to windowSize - 1
+        if trueLow[i] < lowestInWave
+            lowestInWave := trueLow[i]
+            lowestInWaveIdx := i
+    
+    int pointABar = bar_index - highestIdx
+    int pointBBar = bar_index - lowestInWaveIdx
+    float pointAPrice = highestVal
+    float pointBPrice = lowestInWave
+    
+    // בודקים אם B נמצאת אחרי A (כלומר A היא שיא והגל ירד ל-B)
+    // במגמת עליה, A אמור להיות אחרי B (A הוא השיא האחרון, B הוא השפל לפניו)
+    // אנחנו מחפשים מקרה שבו יש "פער" - כלומר B נמוך משמעותית מ-A
+    float priceDistance = math.abs(pointAPrice - pointBPrice) / pointAPrice
+    
+    if priceDistance >= retroPercentThreshold
+        // זוהתה נקודה B פוטנציאלית - עכשיו צריך למצוא את C
+        // C הוא הפיבוט שמחבר ל-B מהצד השני של A
+        // אם A נמצאת מימין ל-B (pointABar > pointBBar), אז C אמור להיות משמאל ל-B
+        // אנחנו מחפשים שיא לפני B
+        
+        if pointABar > pointBBar
+            // A מימין ל-B, מחפשים C (שיא) משמאל ל-B
+            // סורקים אחורה מ-B כדי למצוא שיא מקומי
+            float candidateC = trueHigh[lowestInWaveIdx + 1]
+            int candidateCIdx = lowestInWaveIdx + 1
+            for j = lowestInWaveIdx + 1 to math.min(lowestInWaveIdx + 100, bar_index)
+                if trueHigh[j] > candidateC
+                    candidateC := trueHigh[j]
+                    candidateCIdx := j
+            
+            int pointCBar = bar_index - candidateCIdx
+            float pointCPrice = candidateC
+            
+            // וידוא ש-C הוא אכן משמאל ל-B
+            if pointCBar < pointBBar and pointCBar < pointABar
+                // שמירת הנקודות לזיהוי מאוחר יותר
+                retroPivotA_Price := pointAPrice
+                retroPivotA_Bar := pointABar
+                retroPivotA_IsHigh := true
+                retroPivotB_Price := pointBPrice
+                retroPivotB_Bar := pointBBar
+                retroPivotB_IsHigh := false
+                retroPivotC_Price := pointCPrice
+                retroPivotC_Bar := pointCBar
+                retroPivotC_IsHigh := true
 
 // --- Low Detection (עם איחוד) ---
 if scanLowNow
@@ -139,13 +220,97 @@ if scanLowNow
         // איחוד: שומרים על הנמוך יותר
         if lowestVal < lastPivotLow
             label.delete(lastLowLabel)
-            string labelText = na(prevPivotLow) ? "L" : (lowestVal > prevPivotLow ? "HL" : "LL")
+            string labelText = getStructureLabel(lowestVal, prevPivotLow, na, false)
             lastLowLabel := label.new(bar_index[lowestIdx], trueLow[lowestIdx], text=labelText, color=colorLow, textcolor=color.white, style=label.style_label_up, yloc=yloc.price, size=size.small)
             lastPivotLow    := lowestVal
             lastPivotLowBar := pivotBarIndex
     else
-        string labelText = na(lastPivotLow) ? "L" : (lowestVal > lastPivotLow ? "HL" : "LL")
+        string labelText = getStructureLabel(lowestVal, lastPivotLow, prevPivotLow, false)
         lastLowLabel := label.new(bar_index[lowestIdx], trueLow[lowestIdx], text=labelText, color=colorLow, textcolor=color.white, style=label.style_label_up, yloc=yloc.price, size=size.small)
         prevPivotLow    := lastPivotLow
         lastPivotLow    := lowestVal
         lastPivotLowBar := pivotBarIndex
+    
+    // --- מנגנון רטרואקטיבי: חיפוש אחר פיבוט B (שיא) בתוך הגל האדום שהסתיים ---
+    // Point A הוא השפל שנמצא, עכשיו מחפשים את השיא הגבוה ביותר בגל (Point B)
+    float highestInWave = trueHigh[0]
+    int highestInWaveIdx = 0
+    for i = 0 to windowSize - 1
+        if trueHigh[i] > highestInWave
+            highestInWave := trueHigh[i]
+            highestInWaveIdx := i
+    
+    int pointABar = bar_index - lowestIdx
+    int pointBBar = bar_index - highestInWaveIdx
+    float pointAPrice = lowestVal
+    float pointBPrice = highestInWave
+    
+    float priceDistance = math.abs(pointBPrice - pointAPrice) / pointAPrice
+    
+    if priceDistance >= retroPercentThreshold
+        // זוהתה נקודה B פוטנציאלית - עכשיו צריך למצוא את C
+        // אם A נמצאת מימין ל-B (pointABar > pointBBar), אז C אמור להיות משמאל ל-B
+        // אנחנו מחפשים שפל לפני B
+        
+        if pointABar > pointBBar
+            // A מימין ל-B, מחפשים C (שפל) משמאל ל-B
+            float candidateC = trueLow[highestInWaveIdx + 1]
+            int candidateCIdx = highestInWaveIdx + 1
+            for j = highestInWaveIdx + 1 to math.min(highestInWaveIdx + 100, bar_index)
+                if trueLow[j] < candidateC
+                    candidateC := trueLow[j]
+                    candidateCIdx := j
+            
+            int pointCBar = bar_index - candidateCIdx
+            float pointCPrice = candidateC
+            
+            if pointCBar < pointBBar and pointCBar < pointABar
+                retroPivotA_Price := pointAPrice
+                retroPivotA_Bar := pointABar
+                retroPivotA_IsHigh := false
+                retroPivotB_Price := pointBPrice
+                retroPivotB_Bar := pointBBar
+                retroPivotB_IsHigh := true
+                retroPivotC_Price := pointCPrice
+                retroPivotC_Bar := pointCBar
+                retroPivotC_IsHigh := false
+
+// --- הצגת תוויות רטרואקטיביות ---
+// בודקים אם יש נקודות A, B, C שאותרו ומציגים אותן
+if not na(retroPivotA_Bar) and not na(retroPivotB_Bar) and not na(retroPivotC_Bar)
+    // מחיקת תוויות קודמות
+    if not na(retroLabelA)
+        label.delete(retroLabelA)
+    if not na(retroLabelB)
+        label.delete(retroLabelB)
+    if not na(retroLabelC)
+        label.delete(retroLabelC)
+    
+    // יצירת תוויות חדשות
+    string labelA = retroPivotA_IsHigh ? "H" : "L"
+    string labelB = retroPivotB_IsHigh ? "H" : "L"
+    string labelC = retroPivotC_IsHigh ? "H" : "L"
+    
+    // התאמת מבנה שוק ביחס לפיבוטים הסובבים
+    // עבור A: בודקים מול lastPivotHigh או lastPivotLow
+    if retroPivotA_IsHigh
+        labelA := getStructureLabel(retroPivotA_Price, lastPivotHigh, prevPivotHigh, true)
+    else
+        labelA := getStructureLabel(retroPivotA_Price, lastPivotLow, prevPivotLow, false)
+    
+    // עבור B: בודקים מול הפיבוט ההפוך האחרון
+    if retroPivotB_IsHigh
+        labelB := getStructureLabel(retroPivotB_Price, lastPivotHigh, prevPivotHigh, true)
+    else
+        labelB := getStructureLabel(retroPivotB_Price, lastPivotLow, prevPivotLow, false)
+    
+    // עבור C: בודקים מול הפיבוט ההפוך האחרון
+    if retroPivotC_IsHigh
+        labelC := getStructureLabel(retroPivotC_Price, lastPivotHigh, prevPivotHigh, true)
+    else
+        labelC := getStructureLabel(retroPivotC_Price, lastPivotLow, prevPivotLow, false)
+    
+    // יצירת התוויות
+    retroLabelA := label.new(retroPivotA_Bar, retroPivotA_IsHigh ? retroPivotA_Price : na, text=labelA, color=colorRetro, textcolor=color.white, style=retroPivotA_IsHigh ? label.style_label_down : label.style_label_up, yloc=retroPivotA_IsHigh ? na : yloc.price, size=size.small)
+    retroLabelB := label.new(retroPivotB_Bar, retroPivotB_IsHigh ? retroPivotB_Price : na, text=labelB, color=colorRetro, textcolor=color.white, style=retroPivotB_IsHigh ? label.style_label_down : label.style_label_up, yloc=retroPivotB_IsHigh ? na : yloc.price, size=size.small)
+    retroLabelC := label.new(retroPivotC_Bar, retroPivotC_IsHigh ? retroPivotC_Price : na, text=labelC, color=colorRetro, textcolor=color.white, style=retroPivotC_IsHigh ? label.style_label_down : label.style_label_up, yloc=retroPivotC_IsHigh ? na : yloc.price, size=size.small)
