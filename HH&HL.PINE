@@ -80,6 +80,30 @@ var label lastLowLabel     = na
 colorHigh = color.new(#c23131, 30)
 colorLow  = color.new(#0a846d, 30)
 
+// --- פונקציה לבדיקת פיבוט קלאסי ב-HA ---
+isPivotHigh(i) =>
+    i > 0 and i < bar_index - 1 ? 
+      haHigh[i] > haHigh[i-1] and haHigh[i] > haHigh[i+1] and 
+      haHigh[i] > haClose[i-1] and haHigh[i] > haClose[i+1] : false
+
+isPivotLow(i) =>
+    i > 0 and i < bar_index - 1 ? 
+      haLow[i] < haLow[i-1] and haLow[i] < haLow[i+1] and 
+      haLow[i] < haClose[i-1] and haLow[i] < haClose[i+1] : false
+
+// חישוב HA High/Low לצורך בדיקת פיבוטים
+haHigh = math.max(haOpen, haClose)
+haLow = math.min(haOpen, haClose)
+
+// --- פונקציה לבדיקת מרחק מינימלי מפיבוטים קיימים ---
+checkMinDistance(pivotBar, lastPivotBar, prevPivotBar) =>
+    bool validDist = true
+    if not na(lastPivotBar)
+        validDist := math.abs(pivotBar - lastPivotBar) > minBarsBetweenPivots
+    if not na(prevPivotBar) and validDist
+        validDist := math.abs(pivotBar - prevPivotBar) > minBarsBetweenPivots
+    validDist
+
 // --- High Detection (עם איחוד) ---
 if scanHighNow
     scanHighNow := false
@@ -149,3 +173,105 @@ if scanLowNow
         prevPivotLow    := lastPivotLow
         lastPivotLow    := lowestVal
         lastPivotLowBar := pivotBarIndex
+
+// --- מנגנון רטרואקטיבי לזיהוי שיאים/שפלים מפוספסים ---
+// משתנים לשמירת היסטוריית פיבוטים עיקריים
+var int[] pivotHighBars = array.new_int()
+var float[] pivotHighValues = array.new_float()
+var int[] pivotLowBars = array.new_int()
+var float[] pivotLowValues = array.new_float()
+
+// משתנים למעקב אחר שינויים בפיבוטים
+var int savedLastPivotHighBar = na
+var int savedLastPivotLowBar = na
+
+// פונקציה לבדיקת פיבוט קלאסי ב-HA (לשימוש במנגנון הרטרואקטיבי)
+isClassicPivotHigh(idx) =>
+    idx > 0 and idx < bar_index - 1 ? 
+      haHigh[idx] > haHigh[idx-1] and haHigh[idx] > haHigh[idx+1] and 
+      haHigh[idx] > haClose[idx-1] and haHigh[idx] > haClose[idx+1] : false
+
+isClassicPivotLow(idx) =>
+    idx > 0 and idx < bar_index - 1 ? 
+      haLow[idx] < haLow[idx-1] and haLow[idx] < haLow[idx+1] and 
+      haLow[idx] < haClose[idx-1] and haLow[idx] < haClose[idx+1] : false
+
+// פונקציה לסריקה רטרואקטיבית של פיבוטים מפוספסים בין שני פיבוטים עיקריים
+findMissedPivots(bool isHigh, int currentPivotBar, float currentPivotVal, int[] pivotBars, float[] pivotValues, color labelColor) =>
+    // צריך לפחות פיבוט אחד קודם כדי לחפש בינו לבין הנוכחי
+    if array.size(pivotBars) >= 1
+        int prevMainPivotBar = array.get(pivotBars, array.size(pivotBars) - 1)
+        float prevMainPivotVal = array.get(pivotValues, array.size(pivotValues) - 1)
+        
+        // הגבלת טווח הסריקה למקסימום 500 נרות אחורה למניעת ביצועים איטיים
+        int searchStart = math.max(prevMainPivotBar + 1, currentPivotBar - 500)
+        int searchEnd = currentPivotBar - 1
+        
+        // סריקה מהפיבוט הקודם ועד הנוכחי (לא כולל)
+        for i = searchStart to searchEnd
+            int lookbackIdx = i
+            bool isPivot = false
+            
+            // בדיקה שהאינדקס תקין ויש מספיק נרות מסביב לבדיקת פיבוט
+            if lookbackIdx > 1 and lookbackIdx < bar_index - 2
+                if isHigh
+                    isPivot := isClassicPivotHigh(lookbackIdx)
+                else
+                    isPivot := isClassicPivotLow(lookbackIdx)
+            
+            if isPivot
+                float pivotVal = isHigh ? haHigh[lookbackIdx] : haLow[lookbackIdx]
+                int pivotBar = lookbackIdx
+                
+                // בדיקת מרחק מינימלי מהפיבוט הקודם במערך
+                bool validDistFromPrev = true
+                if array.size(pivotBars) > 0
+                    int lastBar = array.get(pivotBars, array.size(pivotBars) - 1)
+                    if math.abs(pivotBar - lastBar) <= minBarsBetweenPivots
+                        validDistFromPrev := false
+                
+                // בדיקת מרחק מינימלי מהפיבוט הנוכחי (זה שטריגר את הסריקה)
+                bool validDistFromCurrent = math.abs(currentPivotBar - pivotBar) > minBarsBetweenPivots
+                
+                // בדיקה שהפיבוט לא כבר סומן במערך
+                bool alreadyMarked = false
+                for j = 0 to array.size(pivotBars) - 1
+                    if array.get(pivotBars, j) == pivotBar
+                        alreadyMarked := true
+                        break
+                
+                // בדיקה שהפיבוט נמצא בטווח הנכון (בין הקודם לנוכחי)
+                bool inRange = pivotBar > prevMainPivotBar and pivotBar < currentPivotBar
+                
+                if validDistFromPrev and validDistFromCurrent and not alreadyMarked and inRange
+                    // קביעת סוג הפיבוט בהשוואה לפיבוט הקודם
+                    string labelText = ""
+                    if isHigh
+                        labelText := pivotVal > prevMainPivotVal ? "HH" : "LH"
+                    else
+                        labelText := pivotVal > prevMainPivotVal ? "HL" : "LL"
+                    
+                    // יצירת תווית עם אותו סגנון כמו הפיבוטים הרגילים
+                    labelStyle = isHigh ? label.style_label_down : label.style_label_up
+                    priceLevel = isHigh ? haHigh[lookbackIdx] : haLow[lookbackIdx]
+                    label.new(pivotBar, priceLevel, text=labelText, color=labelColor, textcolor=color.white, style=labelStyle, yloc=yloc.price, size=size.small)
+                    
+                    // הוספה למערך כדי למנוע סימון כפול בפעמים הבאות
+                    array.push(pivotBars, pivotBar)
+                    array.push(pivotValues, pivotVal)
+    
+    // הוספת הפיבוט הנוכחי למערך (אחרי הסריקה)
+    array.push(pivotBars, currentPivotBar)
+    array.push(pivotValues, currentPivotVal)
+
+// הפעלת המנגנון הרטרואקטיבי לאחר זיהוי פיבוט חדש
+bool highJustDetected = not na(lastPivotHighBar) and (na(savedLastPivotHighBar) or lastPivotHighBar != savedLastPivotHighBar)
+bool lowJustDetected = not na(lastPivotLowBar) and (na(savedLastPivotLowBar) or lastPivotLowBar != savedLastPivotLowBar)
+
+if highJustDetected and not na(lastPivotHigh)
+    findMissedPivots(true, lastPivotHighBar, lastPivotHigh, pivotHighBars, pivotHighValues, colorHigh)
+    savedLastPivotHighBar := lastPivotHighBar
+
+if lowJustDetected and not na(lastPivotLow)
+    findMissedPivots(false, lastPivotLowBar, lastPivotLow, pivotLowBars, pivotLowValues, colorLow)
+    savedLastPivotLowBar := lastPivotLowBar
