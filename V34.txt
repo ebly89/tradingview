@@ -1,0 +1,2387 @@
+//@version=6
+indicator('Professional S/R & ATR Optimized Trendlines V34 + Trigger Fix', overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 500)
+color_res_market = #c23131
+color_sup_market = #0a846d
+color_bear_trend = #c23131
+color_bull_trend = #0a846d
+color_choch      = color.new(color.white, 30)
+color_liq        = #00bcd4
+color_vp_bull    = #00bcd4
+color_vp_bear    = #9c27b0
+color_fib_618 = #ffc107
+color_fib_500 = #ff9800
+color_fib_382 = #f44336
+pivot_len        = input.int(10, 'עומק פיווט', minval = 2)
+max_silent_age   = input.int(150, 'אורך חיים בזיכרון שקט (נרות)', minval = 10)
+max_active_zones = 6
+lookback_pivots  = input.int(20, 'מספר פיווטים לסריקה', minval = 5, maxval = 50)
+atr_mult_trend   = input.float(0.2, 'מכפיל ATR לגמישות קו (Trend)', step = 0.1)
+min_slope_atr    = input.float(0.05, 'Min Trendline Slope (ATR per bar)', step = 0.01)
+max_trendline_length = input.int(300, 'Max Trendline Length (Bars)', minval = 50)
+atr_zone_mult    = input.float(0.3, 'מכפיל ATR לעובי אזור (S/R)', step = 0.1)
+show_ms_trend    = input.bool(true, 'הצג זיהוי מגמת מבנה שוק', group = 'Market Structure')
+show_choch       = input.bool(true, 'הצג קו CHOCH רלוונטי', group = 'Market Structure')
+ms_line_width    = input.int(2, 'עובי קו מגמה', minval = 1, group = 'Market Structure')
+show_fib         = input.bool(true, 'הצג פיבונאצ\'י בתיקון (Pullback)', group = 'Fibonacci Settings')
+fib_sensitivity  = input.float(0.214, 'עומק תיקון מינימלי (0.214)', step = 0.01, tooltip = 'עומק התיקון המינימלי (בין 0 ל-1) מקצה המגמה הנדרש להפעלת מצב Pullback.', group = 'Fibonacci Settings')
+show_vp          = input.bool(true, 'הצג פרופיל נפח (HVAs)', group = 'Volume Profile')
+ltf_res          = input.timeframe('1', 'רזולוציה עמוקה ל-Order Flow (LTF)', group = 'Volume Profile')
+bins_count       = input.int(50, 'מספר אזורי חלוקה (Bins)', minval = 10, maxval = 100, group = 'Volume Profile')
+show_sweeps = input.bool(true, 'הצג סריקות נזילות (Liquidity Sweeps)', group = 'Liquidity Sweeps')
+ltf_absorption_threshold = input.float(60.0, 'אחוז סף לספיגה ב-LTF (%)', minval = 50.0, maxval = 100.0, step = 1.0, group = 'Liquidity Sweeps')
+max_history_per_level = input.int(10, 'מספר נרות מקסימלי להיסטוריה של רמה', minval = 2, maxval = 50, group = 'Liquidity Sweeps')
+show_fvg = input.bool(true, 'הצג FVG (Fair Value Gaps)', group = 'FVG Settings')
+fvg_filter_atr = input.float(20.0, 'אחוז סף מינימלי מה-ATR לזיהוי FVG', minval = 0.0, step = 1.0, group = 'FVG Settings')
+max_fvg_boxes = input.int(20, 'מספר מקסימלי של תיבות FVG פעילות', minval = 1, maxval = 100, group = 'FVG Settings')
+local_extr_bars  = input.int(5, 'מס\' נרות לקיצון מקומי', minval = 1, group = 'Patterns')
+show_ha_labels          = input.bool(true, 'הצג תוויות שיאים/שפלים (HH/HL)', group = 'HA Fractal Market Structure')
+ha_minBarsBetweenPivots = input.int(5, 'Min Bars Between Pivots', minval = 1, group = 'HA Fractal Market Structure')
+ha_internalN            = input.int(2, 'Internal Pivot N Bars', minval = 1, group = 'HA Fractal Market Structure')
+ha_internalAtrLength    = input.int(14, 'Internal ATR Length', minval = 1, group = 'HA Fractal Market Structure')
+ha_internalAtrMult      = input.float(1.0, 'Internal ATR Multiplier', minval = 0.0, step = 0.1, group = 'HA Fractal Market Structure')
+ha_internalFloorPct     = input.float(0.2, 'ATR Safety Floor (%)', minval = 0.0, step = 0.01, group = 'HA Fractal Market Structure')
+show_setups = input.bool(true, 'הצג פוזיציות (Scoring System)', group = 'Position Management')
+min_score_threshold = input.int(65, 'ציון מינימום להצגה', minval = 0, maxval = 100, group = 'Position Management')
+rr_ratio = input.float(2.0, 'יחס סיכון-סיכוי (R:R) ל-TP', step = 0.1, group = 'Position Management')
+show_ema25  = input.bool(true, 'הצגת ממוצע נע 25',  group = 'Moving Averages')
+show_ema50  = input.bool(true, 'הצגת ממוצע נע 50',  group = 'Moving Averages')
+show_ema200 = input.bool(true, 'הצגת ממוצע נע 200', group = 'Moving Averages')
+show_vwap = input.bool(true, 'הצג קו ממוצע מחיר משוקלל נפח', group = 'VWAP')
+show_vwap_bands = input.bool(true, 'הצג רמות סטיית תקן (1σ, 2σ)', group = 'VWAP')
+vwap_period = input.string('יומית', 'תקופת ייחוס לממוצע מחיר משוקלל נפח', options = ['יומית', 'שבועית', 'חודשית'], group = 'VWAP')
+rvol_min_threshold = input.float(0.8, 'סף נפח מינימלי לפריצה (RVOL)', minval = 0.1, maxval = 3.0, step = 0.1, group = 'RVOL Breakout Filter')
+breakout_window = input.int(3, 'חלון פריצה (נרות)', minval = 1, maxval = 10, group = 'RVOL Breakout Filter')
+show_rvol_label = input.bool(true, 'הצג לייבל RVOL', group = 'RVOL Breakout Filter')
+atr_val = ta.atr(14)
+max_bars_back(volume, 2000)
+float label_base_offset = atr_val * 1.5
+rsi_val = ta.rsi(close, 14)
+ema25  = ta.ema(close, 25)
+ema50  = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+color_ema25  = close > ema25  ? color_sup_market : close < ema25  ? color_bear_trend : color.white
+color_ema50  = close > ema50  ? color_sup_market : close < ema50  ? color_bear_trend : color.white
+color_ema200 = close > ema200 ? color_sup_market : close < ema200 ? color_bear_trend : color.white
+var float vwap_cum_vol = 0.0
+var float vwap_cum_vol_price = 0.0
+var float vwap_cum_vol_price2 = 0.0
+bool vwap_reset = false
+if vwap_period == 'יומית'
+    vwap_reset := timeframe.change('D')
+else if vwap_period == 'שבועית'
+    vwap_reset := timeframe.change('W')
+else
+    vwap_reset := timeframe.change('M')
+if vwap_reset
+    vwap_cum_vol := 0.0
+    vwap_cum_vol_price := 0.0
+    vwap_cum_vol_price2 := 0.0
+var int vwap_period_start_bar = 0
+if vwap_reset
+    vwap_period_start_bar := bar_index
+float vwap_tp = hlc3
+vwap_cum_vol := vwap_cum_vol + volume
+vwap_cum_vol_price := vwap_cum_vol_price + volume * vwap_tp
+vwap_cum_vol_price2 := vwap_cum_vol_price2 + volume * vwap_tp * vwap_tp
+float vwap_value = vwap_cum_vol > 0 ? vwap_cum_vol_price / vwap_cum_vol : vwap_tp
+float vwap_variance = vwap_cum_vol > 0 ? (vwap_cum_vol_price2 / vwap_cum_vol) - (vwap_value * vwap_value) : 0.0
+float vwap_std = math.sqrt(math.max(0.0, vwap_variance))
+float vwap_upper1 = vwap_value + vwap_std
+float vwap_lower1 = vwap_value - vwap_std
+float vwap_upper2 = vwap_value + 2 * vwap_std
+float vwap_lower2 = vwap_value - 2 * vwap_std
+ha_trueTicker = ticker.new(syminfo.prefix, syminfo.ticker)
+[ha_trueOpen, ha_trueHigh, ha_trueLow, ha_trueClose] = request.security(ha_trueTicker, timeframe.period, [open, high, low, close])
+ha_atrSeries = ta.atr(ha_internalAtrLength)
+type DivergenceLabel
+    label lbl
+    float invalidation_price
+    bool is_bullish
+type SweepLabel
+    label lbl
+    float invalidation_price
+    bool is_bullish
+type FVGBox
+    box bx
+    float top
+    float bottom
+    bool is_bullish
+    bool is_broken
+    float gap_pct
+    int start_bar
+type SetupVisuals
+    line entry_line
+    label setup_lbl
+    line sl_line
+    line tp_line
+    float entry_price
+    float sl_price
+    float tp_price
+    bool is_long
+    int creation_bar
+    int status
+    int score
+    bool triggered
+    float trigger_price
+    float breakout_level
+ha_haClose = (ha_trueOpen + ha_trueHigh + ha_trueLow + ha_trueClose) / 4
+var float ha_haOpen = na
+ha_haOpen := na(ha_haOpen[1]) ? (ha_trueOpen + ha_trueClose) / 2 : (ha_haOpen[1] + ha_haClose[1]) / 2
+ha_isGreenHA = ha_haClose > ha_haOpen
+ha_isRedHA   = ha_haClose < ha_haOpen
+var int ha_greenRun = 0
+var int ha_redRun   = 0
+ha_greenRun := ha_isGreenHA ? ha_greenRun[1] + 1 : 0
+ha_redRun   := ha_isRedHA   ? ha_redRun[1] + 1   : 0
+var int ha_trend         = 0
+var int ha_trendBars     = 0
+var int ha_lastUpWave    = 0
+var int ha_lastDownWave  = 0
+var bool ha_scanHighNow = false
+var bool ha_scanLowNow  = false
+var float ha_lastPivotHigh    = na
+var float ha_lastPivotLow     = na
+var int   ha_lastPivotHighBar = na
+var int   ha_lastPivotLowBar  = na
+var float ha_prevPivotHigh    = na
+var float ha_prevPivotLow     = na
+var int   ha_prevPivotHighBar = na
+var int   ha_prevPivotLowBar  = na
+var label ha_lastHighLabel    = na
+var label ha_lastLowLabel     = na
+var array<int> ha_highBars   = array.new_int()
+var array<float> ha_highPrices = array.new_float()
+var array<label> ha_highLabels = array.new_label()
+var array<float> ha_highRSI    = array.new_float()
+var array<int> ha_lowBars    = array.new_int()
+var array<float> ha_lowPrices  = array.new_float()
+var array<label> ha_lowLabels  = array.new_label()
+var array<float> ha_lowRSI     = array.new_float()
+var array<int> pending_high_idx = array.new_int(0)
+var array<float> pending_high_price = array.new_float(0)
+var array<float> pending_high_rsi = array.new_float(0)
+var array<int> pending_low_idx = array.new_int(0)
+var array<float> pending_low_price = array.new_float(0)
+var array<float> pending_low_rsi = array.new_float(0)
+color color_ha_colorHigh = color.new(#c23131, 30)
+color color_ha_colorLow  = color.new(#0a846d, 30)
+var float last_confirmed_ph_price = na
+var float last_confirmed_ph_rsi = na
+var label pre_div_bear_label = na
+var float last_confirmed_pl_price = na
+var float last_confirmed_pl_rsi = na
+var label pre_div_bull_label = na
+var array<DivergenceLabel> div_labels = array.new<DivergenceLabel>()
+var array<SweepLabel> sweep_labels = array.new<SweepLabel>()
+var array<FVGBox> fvg_boxes = array.new<FVGBox>(0)
+var array<SetupVisuals> active_setups = array.new<SetupVisuals>(0)
+var array<float> extreme_high_vol_hist = array.new_float()
+var array<float> extreme_high_ltf_hist = array.new_float()
+var array<float> extreme_low_vol_hist = array.new_float()
+var array<float> extreme_low_ltf_hist = array.new_float()
+var array<float> choch_high_vol_hist = array.new_float()
+var array<float> choch_high_ltf_hist = array.new_float()
+var array<float> choch_low_vol_hist = array.new_float()
+var array<float> choch_low_ltf_hist = array.new_float()
+var array<float> sr_vol_hist = array.new_float()
+var array<float> sr_ltf_hist = array.new_float()
+var int last_ha_high_size = 0
+var int last_ha_low_size = 0
+var int zones_respected = 0
+var int zones_failed = 0
+var int zones_cancelled_vol = 0
+var int zones_cancelled_window = 0
+var table stats_table = table.new(position.bottom_right, 2, 4, border_color = color.white, border_width = 1)
+var int ai_status = 0
+var float impulse_vol = 0.0
+var float impulse_bars = 0.0
+var array<float> traded_entries_prices = array.new_float(0)
+var float lowest_since_choch = na
+var float highest_since_choch = na
+var label rvol_label = na
+var int ms_point_a_bar = na
+var float ms_point_a_price = na
+var bool ms_point_a_is_high = false
+var int ms_point_b_bar = na
+var float ms_point_b_price = na
+var bool ms_point_b_is_high = false
+var int ms_point_c_bar = na
+var float ms_point_c_price = na
+var bool ms_point_c_is_high = false
+type Zone
+    box bx
+    float top
+    float bottom
+    int start_bar
+    int last_touch_bar
+    int touches
+    bool is_res
+    bool is_active
+    bool is_flipped
+    int break_count
+var array<Zone> silent_memory = array.new<Zone>(0)
+var array<Zone> active_zones  = array.new<Zone>(0)
+var line bull_line = na
+var line bear_line = na
+var line bull_parallel_line = na
+var line bear_parallel_line = na
+var int trend_dir = 0
+var int trend_start_bar = na
+var float trend_start_price = na
+var line ms_trend_line = na
+var label ms_trend_label = na
+var float choch_level = na
+var line choch_line = na
+var label choch_label = na
+var float last_bos_bull_lvl = na
+var float last_bos_bear_lvl = na
+var line bos_line = na
+var label bos_label = na
+var bool trend_confirmed = false
+var float trend_absolute_extreme = na
+var int trend_absolute_extreme_idx = na
+var float choch_pivot_val = na
+var int choch_pivot_idx = na
+var float last_bos_extreme = na
+var int last_bos_extreme_idx = na
+var float trend_extreme = na
+var line fib_0_382 = na
+var line fib_0_500 = na
+var line fib_0_618 = na
+var label lbl_0_382 = na
+var label lbl_0_500 = na
+var label lbl_0_618 = na
+var label last_bull_pattern_lbl = na
+var float bull_pattern_low = na
+var label last_bear_pattern_lbl = na
+var float bear_pattern_high = na
+var float cum_buy_vol = 0.0
+var float cum_sell_vol = 0.0
+var table vol_table = table.new(position.top_right, 2, 2, border_color = color.white, border_width = 1)
+var array<box> vp_boxes = array.new_box(0)
+var array<label> vp_labels = array.new_label(0)
+var array<box> hva_display_boxes = array.new_box(0)
+var array<bool> hva_is_bullish = array.new_bool(0)
+var int last_vp_calc_start = na
+clear_all_labels() =>
+    int dl_size = array.size(div_labels)
+    if dl_size > 0
+        for i = 0 to dl_size - 1 by 1
+            label.delete(array.get(div_labels, i).lbl)
+        array.clear(div_labels)
+    int sl_size = array.size(sweep_labels)
+    if sl_size > 0
+        for i = 0 to sl_size - 1 by 1
+            label.delete(array.get(sweep_labels, i).lbl)
+        array.clear(sweep_labels)
+    int fb_size = array.size(fvg_boxes)
+    if fb_size > 0
+        for i = 0 to fb_size - 1 by 1
+            box.delete(array.get(fvg_boxes, i).bx)
+        array.clear(fvg_boxes)
+update_zone_visuals(Zone z) =>
+    if not na(z.bx)
+        color base_color = z.is_res ? color_res_market : color_sup_market
+        int new_transp = math.max(20, 85 - (z.touches * 15))
+        box.set_top(z.bx, z.top)
+        box.set_bottom(z.bx, z.bottom)
+        if z.is_active
+            box.set_bgcolor(z.bx, color.new(base_color, new_transp))
+            box.set_border_color(z.bx, color.new(base_color, 40))
+            box.set_border_width(z.bx, math.min(z.touches, 4))
+            box.set_right(z.bx, bar_index + 20)
+        else
+            box.set_bgcolor(z.bx, color.new(color.white, 100))
+            box.set_border_color(z.bx, color.new(color.white, 100))
+find_best_trend(indices, values, is_resistance, current_atr, trend_start, min_slope, max_len) =>
+    line best_l = na
+    int max_right_score = -1
+    int max_total_score = -1
+    int max_length = -1
+    float tolerance = current_atr * atr_mult_trend
+    int size = array.size(indices)
+    int start_idx = math.max(0, size - 20)
+    if size >= 3
+        for i = start_idx to size - 2 by 1
+            int p1_idx = array.get(indices, i)
+            float p1_val = array.get(values, i)
+            for i2 = i + 1 to size - 1 by 1
+                int p2_idx = array.get(indices, i2)
+                float p2_val = array.get(values, i2)
+                if p2_idx - p1_idx > max_len
+                    continue
+                float slope = (p2_val - p1_val) / (p2_idx - p1_idx)
+                float abs_slope = math.abs(slope)
+                float min_slope_threshold = current_atr * min_slope
+                if abs_slope < min_slope_threshold
+                    continue
+                bool broken = false
+                int total_score = 0
+                int right_score = 0
+                int loop_start = math.max(p1_idx, bar_index - 300)
+                for j = loop_start to bar_index by 2
+                    float line_val = p1_val + slope * (j - p1_idx)
+                    if (is_resistance and close[bar_index - j] > line_val + tolerance) or (not is_resistance and close[bar_index - j] < line_val - tolerance)
+                        broken := true
+                        break
+                if not broken
+                    for k = start_idx to size - 1 by 1
+                        int check_idx = array.get(indices, k)
+                        if check_idx >= p1_idx
+                            float check_val = array.get(values, k)
+                            float line_at_k = p1_val + slope * (check_idx - p1_idx)
+                            if math.abs(check_val - line_at_k) <= tolerance
+                                total_score := total_score + 1
+                                if not na(trend_start) and check_idx > trend_start
+                                    right_score := right_score + 1
+                bool valid_right = na(trend_start) ? true : right_score >= 1
+                if total_score >= 3 and valid_right
+                    int current_length = p2_idx - p1_idx
+                    if right_score > max_right_score or (right_score == max_right_score and total_score > max_total_score) or (right_score == max_right_score and total_score == max_total_score and current_length > max_length)
+                        max_right_score := right_score
+                        max_total_score := total_score
+                        max_length := current_length
+                        if not na(best_l)
+                            line.delete(best_l)
+                        best_l := line.new(p1_idx, p1_val, p2_idx, p2_val, xloc = xloc.bar_index, extend = extend.right, width = 2)
+    best_l
+find_parallel_line(indices_opp, values_opp, slope, current_atr, is_main_support, main_p1_idx, main_p1_val) =>
+    line best_parallel = na
+    float tolerance = current_atr * atr_mult_trend
+    int size_opp = array.size(indices_opp)
+    int max_parallel_score = -1
+    int max_parallel_length = -1
+    if size_opp >= 2
+        int start_idx = math.max(0, size_opp - 20)
+        for i = start_idx to size_opp - 2 by 1
+            int opp1_idx = array.get(indices_opp, i)
+            float opp1_val = array.get(values_opp, i)
+            for i2 = i + 1 to size_opp - 1 by 1
+                int opp2_idx = array.get(indices_opp, i2)
+                float opp2_val = array.get(values_opp, i2)
+                float opp_slope = (opp2_val - opp1_val) / (opp2_idx - opp1_idx)
+                float slope_diff_tolerance = tolerance / math.max(1, opp2_idx - opp1_idx)
+                if math.abs(opp_slope - slope) <= slope_diff_tolerance
+                    float parallel_val_at_main_p1 = opp1_val + slope * (main_p1_idx - opp1_idx)
+                    bool valid_position = false
+                    if is_main_support and parallel_val_at_main_p1 > main_p1_val + tolerance
+                        valid_position := true
+                    else if not is_main_support and parallel_val_at_main_p1 < main_p1_val - tolerance
+                        valid_position := true
+                    if valid_position
+                        bool broken = false
+                        int score = 0
+                        int loop_start = math.max(opp1_idx, bar_index - 300)
+                        for j = loop_start to bar_index by 2
+                            float line_val = opp1_val + slope * (j - opp1_idx)
+                            if is_main_support
+                                if close[bar_index - j] > line_val + tolerance
+                                    broken := true
+                                    break
+                            else
+                                if close[bar_index - j] < line_val - tolerance
+                                    broken := true
+                                    break
+                        if not broken
+                            for k = start_idx to size_opp - 1 by 1
+                                int check_idx = array.get(indices_opp, k)
+                                if check_idx >= opp1_idx
+                                    float check_val = array.get(values_opp, k)
+                                    float line_at_k = opp1_val + slope * (check_idx - opp1_idx)
+                                    if math.abs(check_val - line_at_k) <= tolerance
+                                        score := score + 1
+                        if score >= 2
+                            int current_length = opp2_idx - opp1_idx
+                            if score > max_parallel_score or (score == max_parallel_score and current_length > max_parallel_length)
+                                max_parallel_score := score
+                                max_parallel_length := current_length
+                                if not na(best_parallel)
+                                    line.delete(best_parallel)
+                                best_parallel := line.new(opp1_idx, opp1_val, opp2_idx, opp2_val, xloc = xloc.bar_index, extend = extend.right, width = 2, style = line.style_dashed)
+    best_parallel
+if ha_trend == 0
+    if ha_isGreenHA
+        ha_trend := 1
+        ha_trendBars := 1
+        ha_lastUpWave := 0
+    else if ha_isRedHA
+        ha_trend := -1
+        ha_trendBars := 1
+        ha_lastDownWave := 0
+else if ha_trend == 1
+    if ha_isGreenHA
+        ha_trendBars := ha_trendBars + 1
+    else if ha_isRedHA
+        ha_trendBars := ha_trendBars + 1
+        if ha_redRun == 2
+            bool complexTransition = ha_isRedHA[0] and ha_isRedHA[1] and ha_isGreenHA[2] and ha_isRedHA[3]
+            ha_lastUpWave := ha_trendBars - 2
+            ha_scanHighNow := true
+            ha_trend := -1
+            ha_trendBars := complexTransition ? 4 : 2
+else if ha_trend == -1
+    if ha_isRedHA
+        ha_trendBars := ha_trendBars + 1
+    else if ha_isGreenHA
+        ha_trendBars := ha_trendBars + 1
+        if ha_greenRun == 2
+            bool complexTransition = ha_isGreenHA[0] and ha_isGreenHA[1] and ha_isRedHA[2] and ha_isGreenHA[3]
+            ha_lastDownWave := ha_trendBars - 2
+            ha_scanLowNow := true
+            ha_trend := 1
+            ha_trendBars := complexTransition ? 4 : 2
+float int_ph = ta.pivothigh(ha_trueHigh, ha_internalN, ha_internalN)
+float int_pl = ta.pivotlow(ha_trueLow, ha_internalN, ha_internalN)
+if not na(int_ph) and not ha_scanHighNow
+    int bIndex = bar_index - ha_internalN
+    float bPrice = int_ph
+    float lowestLeftLow = ha_trueLow[ha_internalN + 1]
+    float lowestRightLow = ha_trueLow[ha_internalN - 1]
+    for m = 1 to ha_internalN by 1
+        if ha_trueLow[ha_internalN + m] < lowestLeftLow
+            lowestLeftLow := ha_trueLow[ha_internalN + m]
+        if ha_trueLow[ha_internalN - m] < lowestRightLow
+            lowestRightLow := ha_trueLow[ha_internalN - m]
+    float finalFilterDist = math.max(ha_atrSeries[ha_internalN] * ha_internalAtrMult, ha_trueClose[ha_internalN] * (ha_internalFloorPct / 100.0))
+    if (bPrice - lowestLeftLow >= finalFilterDist) and (bPrice - lowestRightLow >= finalFilterDist)
+        bool already_exists = false
+        int size_highs = array.size(ha_highBars)
+        if size_highs > 0
+            for k = 0 to size_highs - 1 by 1
+                if array.get(ha_highBars, k) == bIndex
+                    already_exists := true
+                    break
+        if not already_exists
+            array.push(ha_highBars, bIndex)
+            array.push(ha_highPrices, bPrice)
+            array.push(ha_highRSI, rsi_val[ha_internalN])
+            array.push(pending_high_idx, bIndex)
+            array.push(pending_high_price, bPrice)
+            array.push(pending_high_rsi, rsi_val[ha_internalN])
+            if trend_dir == 1 and not na(trend_start_bar) and bIndex > trend_start_bar
+                if na(trend_absolute_extreme) or bPrice > trend_absolute_extreme
+                    trend_absolute_extreme := bPrice
+                    trend_absolute_extreme_idx := bIndex
+            label newLbl = na
+            if show_ha_labels
+                newLbl := label.new(bIndex, bPrice + (label_base_offset * 0.2), text = 'H', color = color_ha_colorHigh, textcolor = color.white, style = label.style_label_down, yloc = yloc.price, size = size.tiny)
+            array.push(ha_highLabels, newLbl)
+if not na(int_pl) and not ha_scanLowNow
+    int bIndex = bar_index - ha_internalN
+    float bPrice = int_pl
+    float highestLeftHigh = ha_trueHigh[ha_internalN + 1]
+    float highestRightHigh = ha_trueHigh[ha_internalN - 1]
+    for m = 1 to ha_internalN by 1
+        if ha_trueHigh[ha_internalN + m] > highestLeftHigh
+            highestLeftHigh := ha_trueHigh[ha_internalN + m]
+        if ha_trueHigh[ha_internalN - m] > highestRightHigh
+            highestRightHigh := ha_trueHigh[ha_internalN - m]
+    float finalFilterDist = math.max(ha_atrSeries[ha_internalN] * ha_internalAtrMult, ha_trueClose[ha_internalN] * (ha_internalFloorPct / 100.0))
+    if (highestLeftHigh - bPrice >= finalFilterDist) and (highestRightHigh - bPrice >= finalFilterDist)
+        bool already_exists = false
+        int size_lows = array.size(ha_lowBars)
+        if size_lows > 0
+            for k = 0 to size_lows - 1 by 1
+                if array.get(ha_lowBars, k) == bIndex
+                    already_exists := true
+                    break
+        if not already_exists
+            array.push(ha_lowBars, bIndex)
+            array.push(ha_lowPrices, bPrice)
+            array.push(ha_lowRSI, rsi_val[ha_internalN])
+            array.push(pending_low_idx, bIndex)
+            array.push(pending_low_price, bPrice)
+            array.push(pending_low_rsi, rsi_val[ha_internalN])
+            if trend_dir == -1 and not na(trend_start_bar) and bIndex > trend_start_bar
+                if na(trend_absolute_extreme) or bPrice < trend_absolute_extreme
+                    trend_absolute_extreme := bPrice
+                    trend_absolute_extreme_idx := bIndex
+            label newLbl = na
+            if show_ha_labels
+                newLbl := label.new(bIndex, bPrice - (label_base_offset * 0.2), text = 'L', color = color_ha_colorLow, textcolor = color.white, style = label.style_label_up, yloc = yloc.price, size = size.tiny)
+            array.push(ha_lowLabels, newLbl)
+if ha_scanHighNow
+    ha_scanHighNow := false
+    int windowSize = ha_lastUpWave + 2
+    float highestVal = ha_trueHigh[0]
+    int highestIdx = 0
+    for i = 0 to 200 by 1
+        if i < windowSize
+            if ha_trueHigh[i] > highestVal
+                highestVal := ha_trueHigh[i]
+                highestIdx := i
+        else
+            break
+    int pivotBarIndex = bar_index - highestIdx
+    bool isNewMain = false
+    bool isMerge = false
+    if not na(ha_lastPivotHighBar) and (pivotBarIndex - ha_lastPivotHighBar <= ha_minBarsBetweenPivots)
+        if highestVal > ha_lastPivotHigh
+            label.delete(ha_lastHighLabel)
+            string labelText = na(ha_prevPivotHigh) ? 'H' : (highestVal > ha_prevPivotHigh ? 'HH' : 'LH')
+            if show_ha_labels
+                ha_lastHighLabel := label.new(bar_index[highestIdx], ha_trueHigh[highestIdx] + (label_base_offset * 0.2), text = labelText, color = color_ha_colorHigh, textcolor = color.white, style = label.style_label_down, yloc = yloc.price, size = size.tiny)
+            else
+                ha_lastHighLabel := na
+            ha_lastPivotHigh    := highestVal
+            ha_lastPivotHighBar := pivotBarIndex
+            isMerge := true
+    else
+        string labelText = na(ha_prevPivotHigh) ? 'H' : (highestVal > ha_prevPivotHigh ? 'HH' : 'LH')
+        if show_ha_labels
+            ha_lastHighLabel := label.new(bar_index[highestIdx], ha_trueHigh[highestIdx] + (label_base_offset * 0.2), text = labelText, color = color_ha_colorHigh, textcolor = color.white, style = label.style_label_down, yloc = yloc.price, size = size.tiny)
+        else
+            ha_lastHighLabel := na
+        ha_prevPivotHigh    := ha_lastPivotHigh
+        ha_prevPivotHighBar := ha_lastPivotHighBar
+        ha_lastPivotHigh    := highestVal
+        ha_lastPivotHighBar := pivotBarIndex
+        isNewMain := true
+    if isNewMain
+        if not na(ha_prevPivotHighBar)
+            int offsetStart = bar_index - ha_prevPivotHighBar - 1
+            int offsetEnd = bar_index - pivotBarIndex + 1
+            if offsetStart >= offsetEnd and offsetStart > 0
+                for j = 0 to (offsetStart - offsetEnd) by 1
+                    int i = offsetStart - j
+                    if (i - ha_internalN >= 0)
+                        float pHigh = ta.pivothigh(ha_trueHigh[i], ha_internalN, ha_internalN)
+                        if not na(pHigh)
+                            float lowestLeftLow = ha_trueLow[i + 1]
+                            float lowestRightLow = ha_trueLow[i - 1]
+                            for m = 1 to ha_internalN by 1
+                                if ha_trueLow[i + m] < lowestLeftLow
+                                    lowestLeftLow := ha_trueLow[i + m]
+                                if ha_trueLow[i - m] < lowestRightLow
+                                    lowestRightLow := ha_trueLow[i - m]
+                            float finalFilterDist = math.max(ha_atrSeries[i] * ha_internalAtrMult, ha_trueClose[i] * (ha_internalFloorPct / 100.0))
+                            if (pHigh - lowestLeftLow >= finalFilterDist) and (pHigh - lowestRightLow >= finalFilterDist)
+                                int bIndex = bar_index[i]
+                                float bPrice = pHigh
+                                bool already_exists = false
+                                int size_highs = array.size(ha_highBars)
+                                if size_highs > 0
+                                    for k = 0 to size_highs - 1 by 1
+                                        if array.get(ha_highBars, k) == bIndex
+                                            already_exists := true
+                                            break
+                                if not already_exists
+                                    array.push(ha_highBars, bIndex)
+                                    array.push(ha_highPrices, bPrice)
+                                    array.push(ha_highRSI, rsi_val[i])
+                                    array.push(pending_high_idx, bIndex)
+                                    array.push(pending_high_price, bPrice)
+                                    array.push(pending_high_rsi, rsi_val[i])
+                                    if trend_dir == 1 and not na(trend_start_bar) and bIndex > trend_start_bar
+                                        if na(trend_absolute_extreme) or bPrice > trend_absolute_extreme
+                                            trend_absolute_extreme := bPrice
+                                            trend_absolute_extreme_idx := bIndex
+                                    label newLbl = na
+                                    if show_ha_labels
+                                        newLbl := label.new(bIndex, bPrice + (label_base_offset * 0.2), text = 'H', color = color_ha_colorHigh, textcolor = color.white, style = label.style_label_down, yloc = yloc.price, size = size.tiny)
+                                    array.push(ha_highLabels, newLbl)
+            bool main_exists = false
+            int size_highs_main = array.size(ha_highBars)
+            if size_highs_main > 0
+                for k = 0 to size_highs_main - 1 by 1
+                    if array.get(ha_highBars, k) == pivotBarIndex
+                        main_exists := true
+                        break
+            if not main_exists
+                array.push(ha_highBars, pivotBarIndex)
+                array.push(ha_highPrices, highestVal)
+                array.push(ha_highRSI, rsi_val[highestIdx])
+                array.push(pending_high_idx, pivotBarIndex)
+                array.push(pending_high_price, highestVal)
+                array.push(pending_high_rsi, rsi_val[highestIdx])
+                array.push(ha_highLabels, ha_lastHighLabel)
+                if trend_dir == 1 and not na(trend_start_bar) and pivotBarIndex > trend_start_bar
+                    if na(trend_absolute_extreme) or highestVal > trend_absolute_extreme
+                        trend_absolute_extreme := highestVal
+                        trend_absolute_extreme_idx := pivotBarIndex
+        if isMerge
+            int size_highs_merge = array.size(ha_highBars)
+            if size_highs_merge > 0
+                array.set(ha_highBars, size_highs_merge - 1, pivotBarIndex)
+                array.set(ha_highPrices, size_highs_merge - 1, highestVal)
+                array.set(ha_highLabels, size_highs_merge - 1, ha_lastHighLabel)
+                array.set(ha_highRSI, size_highs_merge - 1, rsi_val[highestIdx])
+                if trend_dir == 1 and not na(trend_start_bar) and pivotBarIndex > trend_start_bar
+                    if na(trend_absolute_extreme) or highestVal > trend_absolute_extreme
+                        trend_absolute_extreme := highestVal
+                        trend_absolute_extreme_idx := pivotBarIndex
+        int size_highs_txt = array.size(ha_highPrices)
+        if size_highs_txt > 0
+            for k = 0 to size_highs_txt - 1 by 1
+                string txt = 'H'
+                if k > 0
+                    float currP = array.get(ha_highPrices, k)
+                    float prevP = array.get(ha_highPrices, k - 1)
+                    txt := currP > prevP ? 'HH' : 'LH'
+                if show_ha_labels
+                    label lbl = array.get(ha_highLabels, k)
+                    if not na(lbl)
+                        label.set_text(lbl, txt)
+        while array.size(ha_highBars) > 50
+            array.shift(ha_highBars)
+            array.shift(ha_highPrices)
+            array.shift(ha_highLabels)
+            array.shift(ha_highRSI)
+if ha_scanLowNow
+    ha_scanLowNow := false
+    int windowSize = ha_lastDownWave + 2
+    float lowestVal = ha_trueLow[0]
+    int lowestIdx = 0
+    for i = 0 to 200 by 1
+        if i < windowSize
+            if ha_trueLow[i] < lowestVal
+                lowestVal := ha_trueLow[i]
+                lowestIdx := i
+        else
+            break
+    int pivotBarIndex = bar_index - lowestIdx
+    bool isNewMain = false
+    bool isMerge = false
+    if not na(ha_lastPivotLowBar) and (pivotBarIndex - ha_lastPivotLowBar <= ha_minBarsBetweenPivots)
+        if lowestVal < ha_lastPivotLow
+            label.delete(ha_lastLowLabel)
+            string labelText = na(ha_prevPivotLow) ? 'L' : (lowestVal > ha_prevPivotLow ? 'HL' : 'LL')
+            if show_ha_labels
+                ha_lastLowLabel := label.new(bar_index[lowestIdx], ha_trueLow[lowestIdx] - (label_base_offset * 0.2), text = labelText, color = color_ha_colorLow, textcolor = color.white, style = label.style_label_up, yloc = yloc.price, size = size.tiny)
+            else
+                ha_lastLowLabel := na
+            ha_lastPivotLow    := lowestVal
+            ha_lastPivotLowBar := pivotBarIndex
+            isMerge := true
+    else
+        string labelText = na(ha_prevPivotLow) ? 'L' : (lowestVal > ha_prevPivotLow ? 'HL' : 'LL')
+        if show_ha_labels
+            ha_lastLowLabel := label.new(bar_index[lowestIdx], ha_trueLow[lowestIdx] - (label_base_offset * 0.2), text = labelText, color = color_ha_colorLow, textcolor = color.white, style = label.style_label_up, yloc = yloc.price, size = size.tiny)
+        else
+            ha_lastLowLabel := na
+        ha_prevPivotLow    := ha_lastPivotLow
+        ha_prevPivotLowBar := ha_lastPivotLowBar
+        ha_lastPivotLow    := lowestVal
+        ha_lastPivotLowBar := pivotBarIndex
+        isNewMain := true
+    if isNewMain
+        if not na(ha_prevPivotLowBar)
+            int offsetStart = bar_index - ha_prevPivotLowBar - 1
+            int offsetEnd = bar_index - pivotBarIndex + 1
+            if offsetStart >= offsetEnd and offsetStart > 0
+                for j = 0 to (offsetStart - offsetEnd) by 1
+                    int i = offsetStart - j
+                    if (i - ha_internalN >= 0)
+                        float pLow = ta.pivotlow(ha_trueLow[i], ha_internalN, ha_internalN)
+                        if not na(pLow)
+                            float highestLeftHigh = ha_trueHigh[i + 1]
+                            float highestRightHigh = ha_trueHigh[i - 1]
+                            for m = 1 to ha_internalN by 1
+                                if ha_trueHigh[i + m] > highestLeftHigh
+                                    highestLeftHigh := ha_trueHigh[i + m]
+                                if ha_trueHigh[i - m] > highestRightHigh
+                                    highestRightHigh := ha_trueHigh[i - m]
+                            float finalFilterDist = math.max(ha_atrSeries[i] * ha_internalAtrMult, ha_trueClose[i] * (ha_internalFloorPct / 100.0))
+                            if (highestLeftHigh - pLow >= finalFilterDist) and (highestRightHigh - pLow >= finalFilterDist)
+                                int bIndex = bar_index[i]
+                                float bPrice = pLow
+                                bool already_exists = false
+                                int size_lows = array.size(ha_lowBars)
+                                if size_lows > 0
+                                    for k = 0 to size_lows - 1 by 1
+                                        if array.get(ha_lowBars, k) == bIndex
+                                            already_exists := true
+                                            break
+                                if not already_exists
+                                    array.push(ha_lowBars, bIndex)
+                                    array.push(ha_lowPrices, bPrice)
+                                    array.push(ha_lowRSI, rsi_val[i])
+                                    array.push(pending_low_idx, bIndex)
+                                    array.push(pending_low_price, bPrice)
+                                    array.push(pending_low_rsi, rsi_val[i])
+                                    if trend_dir == -1 and not na(trend_start_bar) and bIndex > trend_start_bar
+                                        if na(trend_absolute_extreme) or bPrice < trend_absolute_extreme
+                                            trend_absolute_extreme := bPrice
+                                            trend_absolute_extreme_idx := bIndex
+                                    label newLbl = na
+                                    if show_ha_labels
+                                        newLbl := label.new(bIndex, bPrice - (label_base_offset * 0.2), text = 'L', color = color_ha_colorLow, textcolor = color.white, style = label.style_label_up, yloc = yloc.price, size = size.tiny)
+                                    array.push(ha_lowLabels, newLbl)
+            bool main_exists = false
+            int size_lows_main = array.size(ha_lowBars)
+            if size_lows_main > 0
+                for k = 0 to size_lows_main - 1 by 1
+                    if array.get(ha_lowBars, k) == pivotBarIndex
+                        main_exists := true
+                        break
+            if not main_exists
+                array.push(ha_lowBars, pivotBarIndex)
+                array.push(ha_lowPrices, lowestVal)
+                array.push(ha_lowRSI, rsi_val[lowestIdx])
+                array.push(pending_low_idx, pivotBarIndex)
+                array.push(pending_low_price, lowestVal)
+                array.push(pending_low_rsi, rsi_val[lowestIdx])
+                array.push(ha_lowLabels, ha_lastLowLabel)
+                if trend_dir == -1 and not na(trend_start_bar) and pivotBarIndex > trend_start_bar
+                    if na(trend_absolute_extreme) or lowestVal < trend_absolute_extreme
+                        trend_absolute_extreme := lowestVal
+                        trend_absolute_extreme_idx := pivotBarIndex
+        if isMerge
+            int size_lows_merge = array.size(ha_lowBars)
+            if size_lows_merge > 0
+                array.set(ha_lowBars, size_lows_merge - 1, pivotBarIndex)
+                array.set(ha_lowPrices, size_lows_merge - 1, lowestVal)
+                array.set(ha_lowLabels, size_lows_merge - 1, ha_lastLowLabel)
+                array.set(ha_lowRSI, size_lows_merge - 1, rsi_val[lowestIdx])
+                if trend_dir == -1 and not na(trend_start_bar) and pivotBarIndex > trend_start_bar
+                    if na(trend_absolute_extreme) or lowestVal < trend_absolute_extreme
+                        trend_absolute_extreme := lowestVal
+                        trend_absolute_extreme_idx := pivotBarIndex
+        int size_lows_txt = array.size(ha_lowPrices)
+        if size_lows_txt > 0
+            for k = 0 to size_lows_txt - 1 by 1
+                string txt = 'L'
+                if k > 0
+                    float currP = array.get(ha_lowPrices, k)
+                    float prevP = array.get(ha_lowPrices, k - 1)
+                    txt := currP > prevP ? 'HL' : 'LL'
+                if show_ha_labels
+                    label lbl = array.get(ha_lowLabels, k)
+                    if not na(lbl)
+                        label.set_text(lbl, txt)
+        while array.size(ha_lowBars) > 50
+            array.shift(ha_lowBars)
+            array.shift(ha_lowPrices)
+            array.shift(ha_lowLabels)
+            array.shift(ha_lowRSI)
+int size_pending_high = array.size(pending_high_idx)
+if size_pending_high > 0
+    for i = 0 to size_pending_high - 1 by 1
+        int bIndex = array.get(pending_high_idx, i)
+        float bPrice = array.get(pending_high_price, i)
+        float bRsi = array.get(pending_high_rsi, i)
+        int offset = bar_index - bIndex
+        last_confirmed_ph_price := bPrice
+        last_confirmed_ph_rsi := bRsi
+        if not na(pre_div_bear_label)
+            label.delete(pre_div_bear_label)
+        pre_div_bear_label := na
+        int idx_in_main = -1
+        int size_main_high = array.size(ha_highBars)
+        if size_main_high > 0
+            for k = 0 to size_main_high - 1 by 1
+                if array.get(ha_highBars, k) == bIndex
+                    idx_in_main := k
+                    break
+        if idx_in_main >= 1
+            float prev_rsi = array.get(ha_highRSI, idx_in_main - 1)
+            float curr_rsi = bRsi
+            float prev_ph  = array.get(ha_highPrices, idx_in_main - 1)
+            if trend_dir == 1 and bPrice > prev_ph and curr_rsi < prev_rsi
+                if not na(trend_start_bar) and bIndex > trend_start_bar
+                    label new_div = label.new(bIndex, bPrice + (label_base_offset * 1.0), text = 'Divergence', color = color_bear_trend, textcolor = color.white, style = label.style_label_down, size = size.small)
+                    DivergenceLabel new_div_obj = DivergenceLabel.new(new_div, bPrice, false)
+                    array.push(div_labels, new_div_obj)
+        float p_val = bPrice
+        bool is_res_type = true
+        bool handled = false
+        float half_width = (atr_val * atr_zone_mult) / 2
+        float potential_top = p_val + half_width
+        float potential_bottom = p_val - half_width
+        int size_active = array.size(active_zones)
+        if size_active > 0
+            for j = 0 to size_active - 1 by 1
+                Zone z = array.get(active_zones, j)
+                bool candle_intersects = high[offset] >= z.bottom and low[offset] <= z.top
+                bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
+                if candle_intersects or zone_overlaps
+                    z.touches := z.touches + 1
+                    z.last_touch_bar := bar_index
+                    update_zone_visuals(z)
+                    handled := true
+                    break
+        if not handled
+            int size_silent = array.size(silent_memory)
+            if size_silent > 0
+                for j = 0 to size_silent - 1 by 1
+                    Zone z = array.get(silent_memory, size_silent - 1 - j)
+                    bool candle_intersects = high[offset] >= z.bottom and low[offset] <= z.top
+                    bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
+                    if (candle_intersects or zone_overlaps) and z.is_res == is_res_type
+                        z.touches := z.touches + 1
+                        z.last_touch_bar := bar_index
+                        handled := true
+                        break
+        if not handled
+            box new_box = box.new(bIndex, potential_top, bar_index + 20, potential_bottom, xloc = xloc.bar_index, border_color = color.new(color.white, 100), bgcolor = color.new(color.white, 100))
+            Zone new_zone = Zone.new(new_box, potential_top, potential_bottom, bIndex, bar_index, 1, is_res_type, false, false, 0)
+            int res_cnt = 0
+            for sz in silent_memory
+                if sz.is_res
+                    res_cnt := res_cnt + 1
+            if res_cnt < 50
+                array.push(silent_memory, new_zone)
+            else
+                box.delete(new_box)
+    array.clear(pending_high_idx)
+    array.clear(pending_high_price)
+    array.clear(pending_high_rsi)
+int size_pending_low = array.size(pending_low_idx)
+if size_pending_low > 0
+    for i = 0 to size_pending_low - 1 by 1
+        int bIndex = array.get(pending_low_idx, i)
+        float bPrice = array.get(pending_low_price, i)
+        float bRsi = array.get(pending_low_rsi, i)
+        int offset = bar_index - bIndex
+        last_confirmed_pl_price := bPrice
+        last_confirmed_pl_rsi := bRsi
+        if not na(pre_div_bull_label)
+            label.delete(pre_div_bull_label)
+        pre_div_bull_label := na
+        int idx_in_main = -1
+        int size_main_low = array.size(ha_lowBars)
+        if size_main_low > 0
+            for k = 0 to size_main_low - 1 by 1
+                if array.get(ha_lowBars, k) == bIndex
+                    idx_in_main := k
+                    break
+        if idx_in_main >= 1
+            float prev_rsi = array.get(ha_lowRSI, idx_in_main - 1)
+            float curr_rsi = bRsi
+            float prev_pl = array.get(ha_lowPrices, idx_in_main - 1)
+            if trend_dir == -1 and bPrice < prev_pl and curr_rsi > prev_rsi
+                if not na(trend_start_bar) and bIndex > trend_start_bar
+                    label new_div = label.new(bIndex, bPrice - (label_base_offset * 1.0), text = 'Divergence', color = color_bull_trend, textcolor = color.white, style = label.style_label_up, size = size.small)
+                    DivergenceLabel new_div_obj = DivergenceLabel.new(new_div, bPrice, true)
+                    array.push(div_labels, new_div_obj)
+        float p_val = bPrice
+        bool is_res_type = false
+        bool handled = false
+        float half_width = (atr_val * atr_zone_mult) / 2
+        float potential_top = p_val + half_width
+        float potential_bottom = p_val - half_width
+        int size_active = array.size(active_zones)
+        if size_active > 0
+            for j = 0 to size_active - 1 by 1
+                Zone z = array.get(active_zones, j)
+                bool candle_intersects = high[offset] >= z.bottom and low[offset] <= z.top
+                bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
+                if candle_intersects or zone_overlaps
+                    z.touches := z.touches + 1
+                    z.last_touch_bar := bar_index
+                    update_zone_visuals(z)
+                    handled := true
+                    break
+        if not handled
+            int size_silent = array.size(silent_memory)
+            if size_silent > 0
+                for j = 0 to size_silent - 1 by 1
+                    Zone z = array.get(silent_memory, size_silent - 1 - j)
+                    bool candle_intersects = high[offset] >= z.bottom and low[offset] <= z.top
+                    bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
+                    if (candle_intersects or zone_overlaps) and z.is_res == is_res_type
+                        z.touches := z.touches + 1
+                        z.last_touch_bar := bar_index
+                        handled := true
+                        break
+        if not handled
+            box new_box = box.new(bIndex, potential_top, bar_index + 20, potential_bottom, xloc = xloc.bar_index, border_color = color.new(color.white, 100), bgcolor = color.new(color.white, 100))
+            Zone new_zone = Zone.new(new_box, potential_top, potential_bottom, bIndex, bar_index, 1, is_res_type, false, false, 0)
+            int sup_cnt = 0
+            for sz in silent_memory
+                if not sz.is_res
+                    sup_cnt := sup_cnt + 1
+            if sup_cnt < 50
+                array.push(silent_memory, new_zone)
+            else
+                box.delete(new_box)
+    array.clear(pending_low_idx)
+    array.clear(pending_low_price)
+    array.clear(pending_low_rsi)
+[ltf_o, ltf_c, ltf_v] = request.security_lower_tf(syminfo.tickerid, ltf_res, [open, close, volume])
+float candle_buy_vol_ltf = 0.0
+float candle_sell_vol_ltf = 0.0
+if array.size(ltf_o) > 0
+    for _i = 0 to array.size(ltf_o) - 1 by 1
+        float o_ltf = array.get(ltf_o, _i)
+        float c_ltf = array.get(ltf_c, _i)
+        float v_ltf = array.get(ltf_v, _i)
+        if c_ltf > o_ltf
+            candle_buy_vol_ltf := candle_buy_vol_ltf + v_ltf
+        else if c_ltf < o_ltf
+            candle_sell_vol_ltf := candle_sell_vol_ltf + v_ltf
+        else
+            candle_buy_vol_ltf := candle_buy_vol_ltf + v_ltf * 0.5
+            candle_sell_vol_ltf := candle_sell_vol_ltf + v_ltf * 0.5
+else
+    candle_buy_vol_ltf := close > open ? volume : (close == open ? volume / 2 : 0)
+    candle_sell_vol_ltf := close < open ? volume : (close == open ? volume / 2 : 0)
+max_bars_back(candle_buy_vol_ltf, 1100)
+max_bars_back(candle_sell_vol_ltf, 1100)
+if barstate.isconfirmed
+    cum_buy_vol := cum_buy_vol + candle_buy_vol_ltf
+    cum_sell_vol := cum_sell_vol + candle_sell_vol_ltf
+float total_ltf_vol = candle_buy_vol_ltf + candle_sell_vol_ltf
+float buy_pct_ltf = total_ltf_vol > 0 ? (candle_buy_vol_ltf / total_ltf_vol) * 100 : 50.0
+float sell_pct_ltf = 100.0 - buy_pct_ltf
+int i_div = 0
+while i_div < array.size(div_labels)
+    DivergenceLabel div_obj = array.get(div_labels, i_div)
+    bool should_delete = div_obj.is_bullish ? low < div_obj.invalidation_price : high > div_obj.invalidation_price
+    if should_delete
+        label.delete(div_obj.lbl)
+        array.remove(div_labels, i_div)
+    else
+        i_div := i_div + 1
+int i_sweep = 0
+while i_sweep < array.size(sweep_labels)
+    SweepLabel sweep_obj = array.get(sweep_labels, i_sweep)
+    bool should_delete = sweep_obj.is_bullish ? low < sweep_obj.invalidation_price : high > sweep_obj.invalidation_price
+    if should_delete
+        label.delete(sweep_obj.lbl)
+        array.remove(sweep_labels, i_sweep)
+    else
+        i_sweep := i_sweep + 1
+float touch_tol = atr_val * 0.5
+if not na(trend_absolute_extreme) and trend_dir == 1
+    if high >= trend_absolute_extreme - touch_tol
+        array.push(extreme_high_vol_hist, volume)
+        array.push(extreme_high_ltf_hist, buy_pct_ltf)
+        if array.size(extreme_high_vol_hist) > max_history_per_level
+            array.shift(extreme_high_vol_hist)
+            array.shift(extreme_high_ltf_hist)
+if not na(trend_absolute_extreme) and trend_dir == -1
+    if low <= trend_absolute_extreme + touch_tol
+        array.push(extreme_low_vol_hist, volume)
+        array.push(extreme_low_ltf_hist, sell_pct_ltf)
+        if array.size(extreme_low_vol_hist) > max_history_per_level
+            array.shift(extreme_low_vol_hist)
+            array.shift(extreme_low_ltf_hist)
+if not na(choch_pivot_val) and trend_dir == 1
+    if high >= choch_pivot_val - touch_tol
+        array.push(choch_high_vol_hist, volume)
+        array.push(choch_high_ltf_hist, buy_pct_ltf)
+        if array.size(choch_high_vol_hist) > max_history_per_level
+            array.shift(choch_high_vol_hist)
+            array.shift(choch_high_ltf_hist)
+if not na(choch_pivot_val) and trend_dir == -1
+    if low <= choch_pivot_val + touch_tol
+        array.push(choch_low_vol_hist, volume)
+        array.push(choch_low_ltf_hist, sell_pct_ltf)
+        if array.size(choch_low_vol_hist) > max_history_per_level
+            array.shift(choch_low_vol_hist)
+            array.shift(choch_low_ltf_hist)
+int size_az_hist = array.size(active_zones)
+if size_az_hist > 0
+    for i = 0 to size_az_hist - 1 by 1
+        Zone z = array.get(active_zones, i)
+        if z.is_res and high >= z.top - touch_tol
+            array.push(sr_vol_hist, volume)
+            array.push(sr_ltf_hist, buy_pct_ltf)
+            if array.size(sr_vol_hist) > max_history_per_level
+                array.shift(sr_vol_hist)
+                array.shift(sr_ltf_hist)
+            break
+        if not z.is_res and low <= z.bottom + touch_tol
+            array.push(sr_vol_hist, volume)
+            array.push(sr_ltf_hist, sell_pct_ltf)
+            if array.size(sr_vol_hist) > max_history_per_level
+                array.shift(sr_vol_hist)
+                array.shift(sr_ltf_hist)
+            break
+bool new_pivot_added = (array.size(ha_highBars) != last_ha_high_size) or (array.size(ha_lowBars) != last_ha_low_size)
+last_ha_high_size := array.size(ha_highBars)
+last_ha_low_size := array.size(ha_lowBars)
+float prev_trend_extreme = trend_extreme
+if trend_dir == 1
+    trend_extreme := na(trend_extreme) ? high : math.max(trend_extreme, high)
+    if not na(trend_extreme) and (na(prev_trend_extreme) or trend_extreme > prev_trend_extreme)
+        impulse_vol := cum_buy_vol + cum_sell_vol
+        impulse_bars := math.max(1, bar_index - (na(trend_start_bar) ? bar_index : trend_start_bar))
+else if trend_dir == -1
+    trend_extreme := na(trend_extreme) ? low : math.min(trend_extreme, low)
+    if not na(trend_extreme) and (na(prev_trend_extreme) or trend_extreme < prev_trend_extreme)
+        impulse_vol := cum_buy_vol + cum_sell_vol
+        impulse_bars := math.max(1, bar_index - (na(trend_start_bar) ? bar_index : trend_start_bar))
+if not na(choch_pivot_idx) and bar_index > choch_pivot_idx
+    lowest_since_choch := na(lowest_since_choch) ? low : math.min(lowest_since_choch, low)
+    highest_since_choch := na(highest_since_choch) ? high : math.max(highest_since_choch, high)
+if trend_dir == 1 and not na(last_confirmed_ph_price)
+    if high > last_confirmed_ph_price
+        if rsi_val < last_confirmed_ph_rsi
+            if na(pre_div_bear_label)
+                pre_div_bear_label := label.new(bar_index, high, text = 'Pre-Div', color = color_bear_trend, textcolor = color.white, style = label.style_label_down, size = size.small)
+        else
+            if high > label.get_y(pre_div_bear_label)
+                label.set_xy(pre_div_bear_label, bar_index, high)
+    else
+        if not na(pre_div_bear_label)
+            label.delete(pre_div_bear_label)
+        pre_div_bear_label := na
+if trend_dir == -1 and not na(last_confirmed_pl_price)
+    if low < last_confirmed_pl_price
+        if rsi_val > last_confirmed_pl_rsi
+            if na(pre_div_bull_label)
+                pre_div_bull_label := label.new(bar_index, low, text = 'Pre-Div', color = color_bull_trend, textcolor = color.white, style = label.style_label_up, size = size.small)
+        else
+            if low < label.get_y(pre_div_bull_label)
+                label.set_xy(pre_div_bull_label, bar_index, low)
+    else
+        if not na(pre_div_bull_label)
+            label.delete(pre_div_bull_label)
+        pre_div_bull_label := na
+int i_silent = 0
+int size_silent_mem = array.size(silent_memory)
+while i_silent < size_silent_mem
+    Zone z = array.get(silent_memory, i_silent)
+    bool is_broken = (z.is_res and close > z.top) or (not z.is_res and close < z.bottom)
+    z.break_count := is_broken ? z.break_count + 1 : 0
+    if z.break_count >= 2 or bar_index - z.start_bar > max_silent_age
+        box.delete(z.bx)
+        array.remove(silent_memory, i_silent)
+        size_silent_mem := size_silent_mem - 1
+        continue
+    int bars_since_start = bar_index - z.start_bar
+    if z.touches >= 2 and bars_since_start >= 10 or z.touches >= 3 and bars_since_start >= 5 or z.touches >= 4 and bars_since_start >= 30
+        z.is_active := true
+        update_zone_visuals(z)
+        array.push(active_zones, z)
+        array.remove(silent_memory, i_silent)
+        size_silent_mem := size_silent_mem - 1
+        continue
+    i_silent := i_silent + 1
+int i_active = 0
+int size_active_zones = array.size(active_zones)
+while i_active < size_active_zones
+    Zone z = array.get(active_zones, i_active)
+    if not z.is_flipped
+        bool is_brk = (z.is_res and close > z.top) or (not z.is_res and close < z.bottom)
+        z.break_count := is_brk ? z.break_count + 1 : 0
+        if z.break_count >= 1
+            z.is_res := not z.is_res
+            z.is_flipped := true
+            z.touches := 1
+            z.break_count := 0
+            update_zone_visuals(z)
+            i_active := i_active + 1
+            continue
+        i_active := i_active + 1
+    else
+        if (z.is_res and close > z.top) or (not z.is_res and close < z.bottom)
+            box.delete(z.bx)
+            array.remove(active_zones, i_active)
+            size_active_zones := size_active_zones - 1
+            continue
+        if low <= z.top and high >= z.bottom
+            z.touches := z.touches + 1
+            float zone_center = (z.top + z.bottom) / 2.0
+            float zone_half_width = (z.top - z.bottom) / 2.0
+            if not z.is_res and low < zone_center and close >= z.bottom
+                float new_center_sup = (zone_center + low) / 2.0
+                z.top := new_center_sup + zone_half_width
+                z.bottom := new_center_sup - zone_half_width
+            if z.is_res and high > zone_center and close <= z.top
+                float new_center_res = (zone_center + high) / 2.0
+                z.top := new_center_res + zone_half_width
+                z.bottom := new_center_res - zone_half_width
+            update_zone_visuals(z)
+        i_active := i_active + 1
+if array.size(active_zones) > max_active_zones
+    box.delete(array.remove(active_zones, 0).bx)
+int hh_bar = na
+float hh_price = na
+bool hh_found = false
+int hh_size = array.size(ha_highPrices)
+if hh_size >= 2
+    int hh_i = hh_size - 1
+    while hh_i >= 1 and not hh_found
+        if array.get(ha_highPrices, hh_i) > array.get(ha_highPrices, hh_i - 1)
+            hh_bar := array.get(ha_highBars, hh_i)
+            hh_price := array.get(ha_highPrices, hh_i)
+            hh_found := true
+        hh_i := hh_i - 1
+int ll_bar = na
+float ll_price = na
+bool ll_found = false
+int ll_size = array.size(ha_lowPrices)
+if ll_size >= 2
+    int ll_i = ll_size - 1
+    while ll_i >= 1 and not ll_found
+        if array.get(ha_lowPrices, ll_i) < array.get(ha_lowPrices, ll_i - 1)
+            ll_bar := array.get(ha_lowBars, ll_i)
+            ll_price := array.get(ha_lowPrices, ll_i)
+            ll_found := true
+        ll_i := ll_i - 1
+if hh_found and ll_found
+    if hh_bar >= ll_bar
+        ms_point_a_bar := hh_bar
+        ms_point_a_price := hh_price
+        ms_point_a_is_high := true
+        ms_point_b_bar := ll_bar
+        ms_point_b_price := ll_price
+        ms_point_b_is_high := false
+        ms_point_c_bar := na
+        ms_point_c_price := na
+        ms_point_c_is_high := false
+        int c_size = array.size(ha_lowPrices)
+        int c_i = c_size - 1
+        while c_i >= 0 and na(ms_point_c_bar)
+            if array.get(ha_lowBars, c_i) < hh_bar
+                ms_point_c_bar := array.get(ha_lowBars, c_i)
+                ms_point_c_price := array.get(ha_lowPrices, c_i)
+                ms_point_c_is_high := false
+            c_i := c_i - 1
+    else
+        ms_point_a_bar := ll_bar
+        ms_point_a_price := ll_price
+        ms_point_a_is_high := false
+        ms_point_b_bar := hh_bar
+        ms_point_b_price := hh_price
+        ms_point_b_is_high := true
+        ms_point_c_bar := na
+        ms_point_c_price := na
+        ms_point_c_is_high := false
+        int c_size = array.size(ha_highPrices)
+        int c_i = c_size - 1
+        while c_i >= 0 and na(ms_point_c_bar)
+            if array.get(ha_highBars, c_i) < ll_bar
+                ms_point_c_bar := array.get(ha_highBars, c_i)
+                ms_point_c_price := array.get(ha_highPrices, c_i)
+                ms_point_c_is_high := true
+            c_i := c_i - 1
+if show_ms_trend
+    bool ms_bull_signal = false
+    bool ms_bear_signal = false
+    int ms_new_start_bar = na
+    float ms_new_start_price = na
+    if not na(ms_point_a_bar) and not na(ms_point_b_bar)
+        float ref_price = na(ms_point_c_price) ? ms_point_b_price : ms_point_c_price
+        if ms_point_a_is_high
+            if close < ref_price
+                ms_bear_signal := true
+                ms_new_start_bar := ms_point_a_bar
+                ms_new_start_price := ms_point_a_price
+            else
+                ms_bull_signal := true
+                ms_new_start_bar := ms_point_b_bar
+                ms_new_start_price := ms_point_b_price
+        else
+            if close > ref_price
+                ms_bull_signal := true
+                ms_new_start_bar := ms_point_a_bar
+                ms_new_start_price := ms_point_a_price
+            else
+                ms_bear_signal := true
+                ms_new_start_bar := ms_point_b_bar
+                ms_new_start_price := ms_point_b_price
+    float last_ph_val = na
+    int size_ha_high = array.size(ha_highPrices)
+    if size_ha_high > 0
+        last_ph_val := array.get(ha_highPrices, size_ha_high - 1)
+    float last_pl_val = na
+    int size_ha_low = array.size(ha_lowPrices)
+    if size_ha_low > 0
+        last_pl_val := array.get(ha_lowPrices, size_ha_low - 1)
+    int last_ph_idx = na
+    int size_ha_high_bars = array.size(ha_highBars)
+    if size_ha_high_bars > 0
+        last_ph_idx := array.get(ha_highBars, size_ha_high_bars - 1)
+    int last_pl_idx = na
+    int size_ha_low_bars = array.size(ha_lowBars)
+    if size_ha_low_bars > 0
+        last_pl_idx := array.get(ha_lowBars, size_ha_low_bars - 1)
+    bool choch_broken = false
+    if trend_dir == 1 and not na(choch_pivot_val) and close < choch_pivot_val
+        choch_broken := true
+    else if trend_dir == -1 and not na(choch_pivot_val) and close > choch_pivot_val
+        choch_broken := true
+    if choch_broken
+        trend_dir := 0
+        trend_confirmed := false
+        trend_start_bar := na
+        trend_start_price := na
+        trend_absolute_extreme := na
+        trend_absolute_extreme_idx := na
+        last_bos_extreme := na
+        last_bos_extreme_idx := na
+        choch_pivot_val := na
+        choch_pivot_idx := na
+        line.delete(ms_trend_line)
+        label.delete(ms_trend_label)
+        line.delete(bos_line)
+        label.delete(bos_label)
+        line.delete(choch_line)
+        label.delete(choch_label)
+        trend_extreme := na
+        line.delete(fib_0_382)
+        line.delete(fib_0_500)
+        line.delete(fib_0_618)
+        label.delete(lbl_0_382)
+        label.delete(lbl_0_500)
+        label.delete(lbl_0_618)
+        clear_all_labels()
+        int i_close_setup = 0
+        while i_close_setup < array.size(active_setups)
+            SetupVisuals s_close = array.get(active_setups, i_close_setup)
+            if s_close.status == 0 or s_close.status == 3
+                line.delete(s_close.entry_line)
+                label.delete(s_close.setup_lbl)
+                line.delete(s_close.sl_line)
+                line.delete(s_close.tp_line)
+                array.remove(active_setups, i_close_setup)
+            else
+                i_close_setup := i_close_setup + 1
+        lowest_since_choch := na
+        highest_since_choch := na
+        impulse_vol := 0.0
+        impulse_bars := 0.0
+        array.clear(extreme_high_vol_hist)
+        array.clear(extreme_high_ltf_hist)
+        array.clear(extreme_low_vol_hist)
+        array.clear(extreme_low_ltf_hist)
+        array.clear(choch_high_vol_hist)
+        array.clear(choch_high_ltf_hist)
+        array.clear(choch_low_vol_hist)
+        array.clear(choch_low_ltf_hist)
+        array.clear(sr_vol_hist)
+        array.clear(sr_ltf_hist)
+        array.clear(traded_entries_prices)
+    bool valid_bull_bos = trend_dir == 1 and not na(trend_absolute_extreme) and close > trend_absolute_extreme and not na(trend_absolute_extreme_idx) and trend_absolute_extreme_idx > trend_start_bar
+    bool valid_bear_bos = trend_dir == -1 and not na(trend_absolute_extreme) and close < trend_absolute_extreme and not na(trend_absolute_extreme_idx) and trend_absolute_extreme_idx > trend_start_bar
+    if valid_bull_bos
+        last_bos_extreme := trend_absolute_extreme
+        last_bos_extreme_idx := trend_absolute_extreme_idx
+        if not trend_confirmed
+            trend_confirmed := true
+            if not na(ms_trend_line)
+                line.set_color(ms_trend_line, color_bull_trend)
+            if not na(ms_trend_label)
+                label.set_color(ms_trend_label, color_bull_trend)
+                label.set_textcolor(ms_trend_label, color.white)
+                label.set_text(ms_trend_label, 'MS Trend Start (Bull)')
+        if not na(bos_line)
+            line.delete(bos_line)
+        if not na(bos_label)
+            label.delete(bos_label)
+        bos_line := line.new(trend_absolute_extreme_idx, trend_absolute_extreme, bar_index + 20, trend_absolute_extreme, color = color_bull_trend, width = 2, style = line.style_solid)
+        bos_label := label.new(bar_index + 20, trend_absolute_extreme, text = 'BOS', color = color.new(color_bull_trend, 70), textcolor = color.white, style = label.style_label_center, size = size.small)
+        last_bos_bull_lvl := trend_absolute_extreme
+        float min_low_since_extreme = na
+        int min_low_idx_since_extreme = na
+        int lookback_bos = bar_index - trend_absolute_extreme_idx
+        if lookback_bos > 0
+            for i = 0 to lookback_bos - 1 by 1
+                if na(min_low_since_extreme) or low[i] < min_low_since_extreme
+                    min_low_since_extreme := low[i]
+                    min_low_idx_since_extreme := bar_index - i
+        if not na(min_low_since_extreme)
+            choch_pivot_val := min_low_since_extreme
+            choch_pivot_idx := min_low_idx_since_extreme
+            lowest_since_choch := na
+            highest_since_choch := na
+            if show_choch
+                line.delete(choch_line)
+                label.delete(choch_label)
+                choch_line := line.new(choch_pivot_idx, choch_pivot_val, bar_index, choch_pivot_val, color = color_choch, width = 2, style = line.style_dashed)
+                choch_label := label.new(bar_index, choch_pivot_val, text = 'CHOCH', color = color.new(color_choch, 60), textcolor = color.white, style = label.style_label_center, size = size.small)
+    if valid_bear_bos
+        last_bos_extreme := trend_absolute_extreme
+        last_bos_extreme_idx := trend_absolute_extreme_idx
+        if not trend_confirmed
+            trend_confirmed := true
+            if not na(ms_trend_line)
+                line.set_color(ms_trend_line, color_bear_trend)
+            if not na(ms_trend_label)
+                label.set_color(ms_trend_label, color_bear_trend)
+                label.set_textcolor(ms_trend_label, color.white)
+                label.set_text(ms_trend_label, 'MS Trend Start (Bear)')
+        if not na(bos_line)
+            line.delete(bos_line)
+        if not na(bos_label)
+            label.delete(bos_label)
+        bos_line := line.new(trend_absolute_extreme_idx, trend_absolute_extreme, bar_index + 20, trend_absolute_extreme, color = color_bear_trend, width = 2, style = line.style_solid)
+        bos_label := label.new(bar_index + 20, trend_absolute_extreme, text = 'BOS', color = color.new(color_bear_trend, 70), textcolor = color.white, style = label.style_label_center, size = size.small)
+        last_bos_bear_lvl := trend_absolute_extreme
+        float max_high_since_extreme = na
+        int max_high_idx_since_extreme = na
+        int lookback_bos = bar_index - trend_absolute_extreme_idx
+        if lookback_bos > 0
+            for i = 0 to lookback_bos - 1 by 1
+                if na(max_high_since_extreme) or high[i] > max_high_since_extreme
+                    max_high_since_extreme := high[i]
+                    max_high_idx_since_extreme := bar_index - i
+        if not na(max_high_since_extreme)
+            choch_pivot_val := max_high_since_extreme
+            choch_pivot_idx := max_high_idx_since_extreme
+            lowest_since_choch := na
+            highest_since_choch := na
+            if show_choch
+                line.delete(choch_line)
+                label.delete(choch_label)
+                choch_line := line.new(choch_pivot_idx, choch_pivot_val, bar_index, choch_pivot_val, color = color_choch, width = 2, style = line.style_dashed)
+                choch_label := label.new(bar_index, choch_pivot_val, text = 'CHOCH', color = color.new(color_choch, 60), textcolor = color.white, style = label.style_label_center, size = size.small)
+    if ms_bull_signal and trend_dir != 1
+        clear_all_labels()
+        int i_close_setup = 0
+        while i_close_setup < array.size(active_setups)
+            SetupVisuals s_close = array.get(active_setups, i_close_setup)
+            if s_close.status == 0 or s_close.status == 3
+                line.delete(s_close.entry_line)
+                label.delete(s_close.setup_lbl)
+                line.delete(s_close.sl_line)
+                line.delete(s_close.tp_line)
+                array.remove(active_setups, i_close_setup)
+            else
+                i_close_setup := i_close_setup + 1
+        lowest_since_choch := na
+        highest_since_choch := na
+        array.clear(extreme_high_vol_hist)
+        array.clear(extreme_high_ltf_hist)
+        array.clear(extreme_low_vol_hist)
+        array.clear(extreme_low_ltf_hist)
+        array.clear(choch_high_vol_hist)
+        array.clear(choch_high_ltf_hist)
+        array.clear(choch_low_vol_hist)
+        array.clear(choch_low_ltf_hist)
+        array.clear(sr_vol_hist)
+        array.clear(sr_ltf_hist)
+        impulse_vol := 0.0
+        impulse_bars := 0.0
+        array.clear(traded_entries_prices)
+        trend_dir := 1
+        trend_start_bar := ms_new_start_bar
+        trend_start_price := ms_new_start_price
+        trend_confirmed := false
+        trend_absolute_extreme := na
+        trend_absolute_extreme_idx := na
+        last_bos_extreme := na
+        last_bos_extreme_idx := na
+        choch_pivot_val := ms_new_start_price
+        choch_pivot_idx := ms_new_start_bar
+        int size_ha_high_init = array.size(ha_highPrices)
+        if size_ha_high_init > 0 and not na(trend_start_bar)
+            for i = 0 to size_ha_high_init - 1 by 1
+                int b_idx = array.get(ha_highBars, i)
+                float b_val = array.get(ha_highPrices, i)
+                if b_idx > trend_start_bar
+                    if na(trend_absolute_extreme) or b_val > trend_absolute_extreme
+                        trend_absolute_extreme := b_val
+                        trend_absolute_extreme_idx := b_idx
+        if not na(bos_line)
+            line.delete(bos_line)
+        if not na(bos_label)
+            label.delete(bos_label)
+        last_bos_bull_lvl := na
+        last_bos_bear_lvl := na
+        if not na(pre_div_bear_label)
+            label.delete(pre_div_bear_label)
+        pre_div_bear_label := na
+        if not na(pre_div_bull_label)
+            label.delete(pre_div_bull_label)
+        pre_div_bull_label := na
+        last_confirmed_ph_price := na
+        last_confirmed_pl_price := na
+        if not na(last_bull_pattern_lbl)
+            label.delete(last_bull_pattern_lbl)
+        last_bull_pattern_lbl := na
+        bull_pattern_low := na
+        if not na(last_bear_pattern_lbl)
+            label.delete(last_bear_pattern_lbl)
+        last_bear_pattern_lbl := na
+        bear_pattern_high := na
+        cum_buy_vol := candle_buy_vol_ltf
+        cum_sell_vol := candle_sell_vol_ltf
+        trend_extreme := na
+        line.delete(fib_0_382)
+        line.delete(fib_0_500)
+        line.delete(fib_0_618)
+        label.delete(lbl_0_382)
+        label.delete(lbl_0_500)
+        label.delete(lbl_0_618)
+        line.delete(ms_trend_line)
+        label.delete(ms_trend_label)
+        ms_trend_line := line.new(trend_start_bar, trend_start_price, bar_index, trend_start_price, color = color.gray, width = ms_line_width)
+        ms_trend_label := label.new(trend_start_bar, trend_start_price - (label_base_offset * 0.5), text = 'MS Trend Start (Bull - Pending)', color = color.gray, textcolor = color.white, style = label.style_label_up)
+        if show_choch
+            line.delete(choch_line)
+            label.delete(choch_label)
+            choch_line := line.new(ms_new_start_bar, ms_new_start_price, bar_index, ms_new_start_price, color = color_choch, width = 2, style = line.style_dashed)
+            choch_label := label.new(bar_index, ms_new_start_price, text = 'CHOCH', color = color.new(color_choch, 60), textcolor = color.white, style = label.style_label_center, size = size.small)
+    else if ms_bear_signal and trend_dir != -1
+        clear_all_labels()
+        int i_close_setup = 0
+        while i_close_setup < array.size(active_setups)
+            SetupVisuals s_close = array.get(active_setups, i_close_setup)
+            if s_close.status == 0 or s_close.status == 3
+                line.delete(s_close.entry_line)
+                label.delete(s_close.setup_lbl)
+                line.delete(s_close.sl_line)
+                line.delete(s_close.tp_line)
+                array.remove(active_setups, i_close_setup)
+            else
+                i_close_setup := i_close_setup + 1
+        lowest_since_choch := na
+        highest_since_choch := na
+        array.clear(extreme_high_vol_hist)
+        array.clear(extreme_high_ltf_hist)
+        array.clear(extreme_low_vol_hist)
+        array.clear(extreme_low_ltf_hist)
+        array.clear(choch_high_vol_hist)
+        array.clear(choch_high_ltf_hist)
+        array.clear(choch_low_vol_hist)
+        array.clear(choch_low_ltf_hist)
+        array.clear(sr_vol_hist)
+        array.clear(sr_ltf_hist)
+        impulse_vol := 0.0
+        impulse_bars := 0.0
+        array.clear(traded_entries_prices)
+        trend_dir := -1
+        trend_start_bar := ms_new_start_bar
+        trend_start_price := ms_new_start_price
+        trend_confirmed := false
+        trend_absolute_extreme := na
+        trend_absolute_extreme_idx := na
+        last_bos_extreme := na
+        last_bos_extreme_idx := na
+        choch_pivot_val := ms_new_start_price
+        choch_pivot_idx := ms_new_start_bar
+        int size_ha_low_init = array.size(ha_lowPrices)
+        if size_ha_low_init > 0 and not na(trend_start_bar)
+            for i = 0 to size_ha_low_init - 1 by 1
+                int b_idx = array.get(ha_lowBars, i)
+                float b_val = array.get(ha_lowPrices, i)
+                if b_idx > trend_start_bar
+                    if na(trend_absolute_extreme) or b_val < trend_absolute_extreme
+                        trend_absolute_extreme := b_val
+                        trend_absolute_extreme_idx := b_idx
+        if not na(bos_line)
+            line.delete(bos_line)
+        if not na(bos_label)
+            label.delete(bos_label)
+        last_bos_bull_lvl := na
+        last_bos_bear_lvl := na
+        if not na(pre_div_bear_label)
+            label.delete(pre_div_bear_label)
+        pre_div_bear_label := na
+        if not na(pre_div_bull_label)
+            label.delete(pre_div_bull_label)
+        pre_div_bull_label := na
+        last_confirmed_ph_price := na
+        last_confirmed_pl_price := na
+        if not na(last_bull_pattern_lbl)
+            label.delete(last_bull_pattern_lbl)
+        last_bull_pattern_lbl := na
+        bull_pattern_low := na
+        if not na(last_bear_pattern_lbl)
+            label.delete(last_bear_pattern_lbl)
+        last_bear_pattern_lbl := na
+        bear_pattern_high := na
+        cum_buy_vol := candle_buy_vol_ltf
+        cum_sell_vol := candle_sell_vol_ltf
+        trend_extreme := na
+        line.delete(fib_0_382)
+        line.delete(fib_0_500)
+        line.delete(fib_0_618)
+        label.delete(lbl_0_382)
+        label.delete(lbl_0_500)
+        label.delete(lbl_0_618)
+        line.delete(ms_trend_line)
+        label.delete(ms_trend_label)
+        ms_trend_line := line.new(trend_start_bar, trend_start_price, bar_index, trend_start_price, color = color.gray, width = ms_line_width)
+        ms_trend_label := label.new(trend_start_bar, trend_start_price + (label_base_offset * 0.5), text = 'MS Trend Start (Bear - Pending)', color = color.gray, textcolor = color.white, style = label.style_label_down)
+        if show_choch
+            line.delete(choch_line)
+            label.delete(choch_label)
+            choch_line := line.new(ms_new_start_bar, ms_new_start_price, bar_index, ms_new_start_price, color = color_choch, width = 2, style = line.style_dashed)
+            choch_label := label.new(bar_index, ms_new_start_price, text = 'CHOCH', color = color.new(color_choch, 60), textcolor = color.white, style = label.style_label_center, size = size.small)
+    if new_pivot_added
+        line new_bear = find_best_trend(ha_highBars, ha_highPrices, true, atr_val, trend_start_bar, min_slope_atr, max_trendline_length)
+        if not na(new_bear)
+            line.delete(bear_line)
+            bear_line := new_bear
+            line.set_color(bear_line, color_bear_trend)
+            float b_slope = (line.get_y2(bear_line) - line.get_y1(bear_line)) / (line.get_x2(bear_line) - line.get_x1(bear_line))
+            line new_bear_parallel = find_parallel_line(ha_lowBars, ha_lowPrices, b_slope, atr_val, false, line.get_x1(bear_line), line.get_y1(bear_line))
+            if not na(new_bear_parallel)
+                line.delete(bear_parallel_line)
+                bear_parallel_line := new_bear_parallel
+                line.set_color(bear_parallel_line, color_bear_trend)
+            else
+                line.delete(bear_parallel_line)
+                bear_parallel_line := na
+        else
+            line.delete(bear_line)
+            bear_line := na
+            line.delete(bear_parallel_line)
+            bear_parallel_line := na
+        line new_bull = find_best_trend(ha_lowBars, ha_lowPrices, false, atr_val, trend_start_bar, min_slope_atr, max_trendline_length)
+        if not na(new_bull)
+            line.delete(bull_line)
+            bull_line := new_bull
+            line.set_color(bull_line, color_bull_trend)
+            float b_slope = (line.get_y2(bull_line) - line.get_y1(bull_line)) / (line.get_x2(bull_line) - line.get_x1(bull_line))
+            line new_bull_parallel = find_parallel_line(ha_highBars, ha_highPrices, b_slope, atr_val, true, line.get_x1(bull_line), line.get_y1(bull_line))
+            if not na(new_bull_parallel)
+                line.delete(bull_parallel_line)
+                bull_parallel_line := new_bull_parallel
+                line.set_color(bull_parallel_line, color_bull_trend)
+            else
+                line.delete(bull_parallel_line)
+                bull_parallel_line := na
+        else
+            line.delete(bull_line)
+            bull_line := na
+            line.delete(bull_parallel_line)
+            bull_parallel_line := na
+    if not na(ms_trend_line)
+        line.set_x2(ms_trend_line, bar_index)
+    if not na(choch_line)
+        line.set_x2(choch_line, bar_index)
+        label.set_x(choch_label, bar_index)
+if not na(bear_line) and close > line.get_price(bear_line, bar_index)
+    line.delete(bear_line)
+    bear_line := na
+    line.delete(bear_parallel_line)
+    bear_parallel_line := na
+if not na(bull_line) and close < line.get_price(bull_line, bar_index)
+    line.delete(bull_line)
+    bull_line := na
+    line.delete(bull_parallel_line)
+    bull_parallel_line := na
+if show_fvg and trend_confirmed and not na(trend_start_bar) and bar_index >= trend_start_bar
+    float gap_size_bull = low - high[2]
+    float gap_size_bear = low[2] - high
+    float filt_up = (gap_size_bull / atr_val) * 100
+    float filt_dn = (gap_size_bear / atr_val) * 100
+    bool isBull_gap = high[2] < low and high[2] < high[1] and low[2] < low and filt_up > fvg_filter_atr
+    bool isBear_gap = low[2] > high and low[2] > low[1] and high[2] > high and filt_dn > fvg_filter_atr
+    if isBull_gap
+        bool has_overlap_bull = false
+        int size_fvg_chk_b = array.size(fvg_boxes)
+        if size_fvg_chk_b > 0
+            for i = 0 to size_fvg_chk_b - 1 by 1
+                FVGBox existing_fvg = array.get(fvg_boxes, i)
+                if existing_fvg.is_bullish and not existing_fvg.is_broken
+                    if low >= existing_fvg.bottom and high[2] <= existing_fvg.top
+                        has_overlap_bull := true
+                        break
+        if not has_overlap_bull
+            string fvg_text = str.tostring(filt_up, '#.#') + '% ATR'
+            box new_bx = box.new(bar_index - 1, low, bar_index + 20, high[2], border_color = color.new(#00bcd4, 30), bgcolor = color.new(#00bcd4, 85), text = fvg_text, text_color = color.white, text_halign = text.align_center, text_valign = text.align_center, text_size = size.small)
+            FVGBox new_fvg = FVGBox.new(new_bx, low, high[2], true, false, filt_up, bar_index - 1)
+            array.push(fvg_boxes, new_fvg)
+            if array.size(fvg_boxes) > max_fvg_boxes
+                FVGBox old_fvg = array.shift(fvg_boxes)
+                box.delete(old_fvg.bx)
+    if isBear_gap
+        bool has_overlap_bear = false
+        int size_fvg_chk_s = array.size(fvg_boxes)
+        if size_fvg_chk_s > 0
+            for i = 0 to size_fvg_chk_s - 1 by 1
+                FVGBox existing_fvg = array.get(fvg_boxes, i)
+                if not existing_fvg.is_bullish and not existing_fvg.is_broken
+                    if high <= existing_fvg.top and low[2] >= existing_fvg.bottom
+                        has_overlap_bear := true
+                        break
+        if not has_overlap_bear
+            string fvg_text = str.tostring(filt_dn, '#.#') + '% ATR'
+            box new_bx = box.new(bar_index - 1, low[2], bar_index + 20, high, border_color = color.new(#9c27b0, 30), bgcolor = color.new(#9c27b0, 85), text = fvg_text, text_color = color.white, text_halign = text.align_center, text_valign = text.align_center, text_size = size.small)
+            FVGBox new_fvg = FVGBox.new(new_bx, low[2], high, false, false, filt_dn, bar_index - 1)
+            array.push(fvg_boxes, new_fvg)
+            if array.size(fvg_boxes) > max_fvg_boxes
+                FVGBox old_fvg = array.shift(fvg_boxes)
+                box.delete(old_fvg.bx)
+int i_fvg = 0
+while i_fvg < array.size(fvg_boxes)
+    FVGBox fvg_obj = array.get(fvg_boxes, i_fvg)
+    if not fvg_obj.is_broken
+        bool broken_now = fvg_obj.is_bullish ? low < fvg_obj.bottom : high > fvg_obj.top
+        if broken_now
+            fvg_obj.is_broken := true
+            box.set_bgcolor(fvg_obj.bx, color.new(color.white, 100))
+            box.set_border_color(fvg_obj.bx, color.new(color.white, 100))
+            box.set_text(fvg_obj.bx, '')
+    i_fvg := i_fvg + 1
+bool confluence_sr_long = false
+bool confluence_sr_short = false
+bool confluence_hva_long = false
+bool confluence_hva_short = false
+bool confluence_fvg_long = false
+bool confluence_fvg_short = false
+bool confluence_fib_long = false
+bool confluence_fib_short = false
+bool confluence_tl_long = false
+bool confluence_tl_short = false
+bool confluence_ema_long = false
+bool confluence_ema_short = false
+if trend_confirmed and not na(trend_start_bar) and bar_index >= trend_start_bar
+    int size_sr_conf = array.size(active_zones)
+    if size_sr_conf > 0
+        for i = 0 to size_sr_conf - 1 by 1
+            Zone z = array.get(active_zones, i)
+            float sr_tol = atr_val * 0.1
+            if not z.is_res and low <= z.top + sr_tol and high >= z.bottom - sr_tol and close >= z.bottom
+                confluence_sr_long := true
+            if z.is_res and high >= z.bottom - sr_tol and low <= z.top + sr_tol and close <= z.top
+                confluence_sr_short := true
+    int size_vp_conf = array.size(vp_boxes)
+    if size_vp_conf > 0
+        for i = 0 to size_vp_conf - 1 by 1
+            box b = array.get(vp_boxes, i)
+            if i < array.size(hva_is_bullish)
+                float hva_tol = atr_val * 0.1
+                if array.get(hva_is_bullish, i) and low <= box.get_top(b) + hva_tol and high >= box.get_bottom(b) - hva_tol and close >= box.get_bottom(b)
+                    confluence_hva_long := true
+                if not array.get(hva_is_bullish, i) and high >= box.get_bottom(b) - hva_tol and low <= box.get_top(b) + hva_tol and close <= box.get_top(b)
+                    confluence_hva_short := true
+    int size_fvg_conf = array.size(fvg_boxes)
+    if size_fvg_conf > 0
+        for i = 0 to size_fvg_conf - 1 by 1
+            FVGBox fvg_obj = array.get(fvg_boxes, i)
+            if not fvg_obj.is_broken
+                float fvg_tol = atr_val * 0.1
+                if fvg_obj.is_bullish and low <= fvg_obj.top + fvg_tol and high >= fvg_obj.bottom - fvg_tol and close >= fvg_obj.bottom
+                    confluence_fvg_long := true
+                if not fvg_obj.is_bullish and high >= fvg_obj.bottom - fvg_tol and low <= fvg_obj.top + fvg_tol and close <= fvg_obj.top
+                    confluence_fvg_short := true
+    if show_fib and trend_dir != 0
+        float total_move = trend_extreme - trend_start_price
+        if not na(total_move) and total_move != 0
+            float diff = trend_extreme - trend_start_price
+            float f382 = trend_extreme - (diff * 0.382)
+            float f500 = trend_extreme - (diff * 0.500)
+            float f618 = trend_extreme - (diff * 0.618)
+            float fib_tol = atr_val * 0.1
+            if trend_dir == 1
+                if (low <= f382 + fib_tol and close >= f382) or (low <= f500 + fib_tol and close >= f500) or (low <= f618 + fib_tol and close >= f618)
+                    confluence_fib_long := true
+            if trend_dir == -1
+                if (high >= f382 - fib_tol and close <= f382) or (high >= f500 - fib_tol and close <= f500) or (high >= f618 - fib_tol and close <= f618)
+                    confluence_fib_short := true
+    if not na(bull_line)
+        float bull_price = line.get_price(bull_line, bar_index)
+        float tl_tol_b = atr_val * 0.2
+        bool tl_bull_int = low <= bull_price + tl_tol_b and high >= bull_price - tl_tol_b
+        if tl_bull_int and close >= bull_price
+            confluence_tl_long := true
+    if not na(bear_line)
+        float bear_price = line.get_price(bear_line, bar_index)
+        float tl_tol_s = atr_val * 0.2
+        bool tl_bear_int = low <= bear_price + tl_tol_s and high >= bear_price - tl_tol_s
+        if tl_bear_int and close <= bear_price
+            confluence_tl_short := true
+    float ema_conf_tol = atr_val * 0.15
+    bool ema25_int_conf = low <= ema25 + ema_conf_tol and high >= ema25 - ema_conf_tol
+    bool ema50_int_conf = low <= ema50 + ema_conf_tol and high >= ema50 - ema_conf_tol
+    bool ema200_int_conf = low <= ema200 + ema_conf_tol and high >= ema200 - ema_conf_tol
+    if (ema25_int_conf and close >= ema25) or (ema50_int_conf and close >= ema50) or (ema200_int_conf and close >= ema200)
+        confluence_ema_long := true
+    if (ema25_int_conf and close <= ema25) or (ema50_int_conf and close <= ema50) or (ema200_int_conf and close <= ema200)
+        confluence_ema_short := true
+if show_fib and trend_dir != 0 and trend_confirmed
+    float total_move = trend_extreme - trend_start_price
+    float ratio = na
+    if not na(total_move) and total_move != 0
+        ratio := (trend_extreme - close) / total_move
+    bool is_pullback = not na(ratio) and ratio >= fib_sensitivity
+    if is_pullback and not na(trend_start_price) and not na(trend_extreme)
+        line.delete(fib_0_382)
+        line.delete(fib_0_500)
+        line.delete(fib_0_618)
+        label.delete(lbl_0_382)
+        label.delete(lbl_0_500)
+        label.delete(lbl_0_618)
+        float diff = trend_extreme - trend_start_price
+        float fib_382_price = trend_extreme - (diff * 0.382)
+        float fib_500_price = trend_extreme - (diff * 0.500)
+        float fib_618_price = trend_extreme - (diff * 0.618)
+        fib_0_382 := line.new(trend_start_bar, fib_382_price, bar_index, fib_382_price, color = color_fib_382, style = line.style_dotted)
+        fib_0_500 := line.new(trend_start_bar, fib_500_price, bar_index, fib_500_price, color = color_fib_500, width = 2)
+        fib_0_618 := line.new(trend_start_bar, fib_618_price, bar_index, fib_618_price, color = color_fib_618, style = line.style_dotted)
+        lbl_0_382 := label.new(bar_index, fib_382_price, text = '0.382', color = color.new(color.white, 100), textcolor = color_fib_382, style = label.style_label_left, size = size.small)
+        lbl_0_500 := label.new(bar_index, fib_500_price, text = '0.500', color = color.new(color.white, 100), textcolor = color_fib_500, style = label.style_label_left, size = size.small)
+        lbl_0_618 := label.new(bar_index, fib_618_price, text = '0.618', color = color.new(color.white, 100), textcolor = color_fib_618, style = label.style_label_left, size = size.small)
+        float buy_pct = (cum_buy_vol + cum_sell_vol) > 0 ? (cum_buy_vol / (cum_buy_vol + cum_sell_vol)) * 100 : 50
+        float sell_pct = (cum_buy_vol + cum_sell_vol) > 0 ? (cum_sell_vol / (cum_buy_vol + cum_sell_vol)) * 100 : 50
+        table.cell(vol_table, 0, 0, text = '', bgcolor = color.new(color.white, 100))
+        table.cell(vol_table, 1, 0, text = '', bgcolor = color.new(color.white, 100))
+        table.cell(vol_table, 0, 1, text = 'B: ' + str.tostring(buy_pct, '#.#') + '%', bgcolor = color.new(color_sup_market, 80), text_color = color.white, width = math.max(0.1, 15 * (buy_pct / 100)), height = 5)
+        table.cell(vol_table, 1, 1, text = 'S: ' + str.tostring(sell_pct, '#.#') + '%', bgcolor = color.new(color_res_market, 80), text_color = color.white, width = math.max(0.1, 15 * (sell_pct / 100)), height = 5)
+    else
+        line.delete(fib_0_382)
+        line.delete(fib_0_500)
+        line.delete(fib_0_618)
+        label.delete(lbl_0_382)
+        label.delete(lbl_0_500)
+        label.delete(lbl_0_618)
+        table.cell(vol_table, 0, 0, text = '', bgcolor = color.new(color.white, 100))
+        table.cell(vol_table, 1, 0, text = '', bgcolor = color.new(color.white, 100))
+        table.cell(vol_table, 0, 1, text = '', bgcolor = color.new(color.white, 100))
+        table.cell(vol_table, 1, 1, text = '', bgcolor = color.new(color.white, 100))
+else
+    line.delete(fib_0_382)
+    line.delete(fib_0_500)
+    line.delete(fib_0_618)
+    label.delete(lbl_0_382)
+    label.delete(lbl_0_500)
+    label.delete(lbl_0_618)
+    table.cell(vol_table, 0, 0, text = '', bgcolor = color.new(color.white, 100))
+    table.cell(vol_table, 1, 0, text = '', bgcolor = color.new(color.white, 100))
+    table.cell(vol_table, 0, 1, text = '', bgcolor = color.new(color.white, 100))
+    table.cell(vol_table, 1, 1, text = '', bgcolor = color.new(color.white, 100))
+float body = math.abs(close - open)
+float wick_up = high - math.max(open, close)
+float wick_dn = math.min(open, close) - low
+bool bull_engulfing = close > open and close[1] < open[1] and close >= open[1] and open <= close[1] and high >= high[1] and low <= low[1]
+bool bear_engulfing = close < open and close[1] > open[1] and close <= open[1] and open >= close[1] and high >= high[1] and low <= low[1]
+bool hammer = wick_dn >= 2 * body and wick_up <= wick_dn * 0.5
+bool shooting_star = wick_up >= 2 * body and wick_dn <=  wick_up * 0.5
+bool morning_star = close[2] < open[2] and math.abs(close[1] - open[1]) < (high[1] - low[1]) * 0.5 and close > open and close > open[2] - (open[2] - close[2]) / 2
+bool evening_star = close[2] > open[2] and math.abs(close[1] - open[1]) < (high[1] - low[1]) * 0.5 and close < open and close < open[2] - (close[2] - open[2]) / 2
+bool is_bull_pattern = bull_engulfing or hammer or morning_star
+bool is_bear_pattern = bear_engulfing or shooting_star or evening_star
+string pattern_name = bull_engulfing ? 'B.Engulf' : hammer ? 'Hammer' : morning_star ? 'M.Star' : bear_engulfing ? 'Br.Engulf' : shooting_star ? 'S.Star' : 'E.Star'
+float pattern_extreme = na
+if trend_dir == 1
+    pattern_extreme := na(trend_extreme) ? high : math.max(trend_extreme, high)
+else if trend_dir == -1
+    pattern_extreme := na(trend_extreme) ? low : math.min(trend_extreme, low)
+float total_move_eval = pattern_extreme - trend_start_price
+float pullback_ratio = na
+if not na(total_move_eval) and total_move_eval != 0
+    pullback_ratio := (pattern_extreme - close) / total_move_eval
+bool is_in_pullback = not na(pullback_ratio) and pullback_ratio >= fib_sensitivity
+bool valid_bull_context = false
+bool valid_bear_context = false
+if trend_dir == -1 and not na(pattern_extreme)
+    if low <= pattern_extreme + (atr_val * 0.5)
+        valid_bull_context := true
+if trend_dir == 1 and is_in_pullback
+    valid_bull_context := true
+if trend_dir == 1 and not na(pattern_extreme)
+    if high >= pattern_extreme - (atr_val * 0.5)
+        valid_bear_context := true
+if trend_dir == -1 and is_in_pullback
+    valid_bear_context := true
+int confluence_count = 0
+if is_bull_pattern and valid_bull_context
+    if confluence_sr_long
+        confluence_count := confluence_count + 1
+    if confluence_hva_long
+        confluence_count := confluence_count + 1
+    if confluence_fvg_long
+        confluence_count := confluence_count + 1
+    if confluence_fib_long
+        confluence_count := confluence_count + 1
+    if confluence_tl_long
+        confluence_count := confluence_count + 1
+    if confluence_ema_long
+        confluence_count := confluence_count + 1
+    if not na(pre_div_bull_label) and (bar_index - label.get_x(pre_div_bull_label) <= 2)
+        confluence_count := confluence_count + 1
+    if not na(trend_extreme) and trend_dir == -1 and low <= trend_extreme
+        confluence_count := confluence_count + 1
+if is_bear_pattern and valid_bear_context
+    if confluence_sr_short
+        confluence_count := confluence_count + 1
+    if confluence_hva_short
+        confluence_count := confluence_count + 1
+    if confluence_fvg_short
+        confluence_count := confluence_count + 1
+    if confluence_fib_short
+        confluence_count := confluence_count + 1
+    if confluence_tl_short
+        confluence_count := confluence_count + 1
+    if confluence_ema_short
+        confluence_count := confluence_count + 1
+    if not na(pre_div_bear_label) and (bar_index - label.get_x(pre_div_bear_label) <= 2)
+        confluence_count := confluence_count + 1
+    if not na(trend_extreme) and trend_dir == 1 and high >= trend_extreme
+        confluence_count := confluence_count + 1
+bool is_local_peak = high == ta.highest(high, local_extr_bars)
+bool is_local_trough = low == ta.lowest(low, local_extr_bars)
+if confluence_count > 0 and not na(trend_start_bar) and bar_index >= trend_start_bar
+    if is_bull_pattern and valid_bull_context and is_local_trough
+        if not na(last_bull_pattern_lbl)
+            label.delete(last_bull_pattern_lbl)
+        last_bull_pattern_lbl := label.new(bar_index, low - (label_base_offset * 0.7), text = pattern_name, color = color_bull_trend, textcolor = color.white, style = label.style_label_up, size = size.small)
+        bull_pattern_low := low
+    if is_bear_pattern and valid_bear_context and is_local_peak
+        if not na(last_bear_pattern_lbl)
+            label.delete(last_bear_pattern_lbl)
+        last_bear_pattern_lbl := label.new(bar_index, high + (label_base_offset * 0.7), text = pattern_name, color = color_bear_trend, textcolor = color.white, style = label.style_label_down, size = size.small)
+        bear_pattern_high := high
+if not na(last_bull_pattern_lbl)
+    if low < bull_pattern_low
+        label.delete(last_bull_pattern_lbl)
+        last_bull_pattern_lbl := na
+        bull_pattern_low := na
+if not na(last_bear_pattern_lbl)
+    if high > bear_pattern_high
+        label.delete(last_bear_pattern_lbl)
+        last_bear_pattern_lbl := na
+        bear_pattern_high := na
+bool is_bull_sweep = false
+bool is_bear_sweep = false
+if show_sweeps and not na(trend_start_bar) and bar_index >= trend_start_bar
+    float best_vol_dev = -9999.0
+    float best_ltf_dev = -9999.0
+    float sw_avg_vol = 0.0
+    float sw_avg_ltf = 0.0
+    float sw_v_dev = 0.0
+    float sw_l_dev = 0.0
+    if trend_dir == 1 and not na(trend_absolute_extreme)
+        if high > trend_absolute_extreme and close <= trend_absolute_extreme
+            if buy_pct_ltf >= ltf_absorption_threshold
+                sw_avg_vol := array.size(extreme_high_vol_hist) > 0 ? array.avg(extreme_high_vol_hist) : volume
+                sw_avg_ltf := array.size(extreme_high_ltf_hist) > 0 ? array.avg(extreme_high_ltf_hist) : buy_pct_ltf
+                sw_v_dev := sw_avg_vol > 0 ? ((volume - sw_avg_vol) / sw_avg_vol) * 100 : 0.0
+                sw_l_dev := sw_avg_ltf > 0 ? ((buy_pct_ltf - sw_avg_ltf) / sw_avg_ltf) * 100 : 0.0
+                if sw_v_dev > best_vol_dev or sw_l_dev > best_ltf_dev
+                    best_vol_dev := sw_v_dev
+                    best_ltf_dev := sw_l_dev
+                    is_bear_sweep := true
+                    is_bull_sweep := false
+    else if trend_dir == -1 and not na(trend_absolute_extreme)
+        if low < trend_absolute_extreme and close >= trend_absolute_extreme
+            if sell_pct_ltf >= ltf_absorption_threshold
+                sw_avg_vol := array.size(extreme_low_vol_hist) > 0 ? array.avg(extreme_low_vol_hist) : volume
+                sw_avg_ltf := array.size(extreme_low_ltf_hist) > 0 ? array.avg(extreme_low_ltf_hist) : sell_pct_ltf
+                sw_v_dev := sw_avg_vol > 0 ? ((volume - sw_avg_vol) / sw_avg_vol) * 100 : 0.0
+                sw_l_dev := sw_avg_ltf > 0 ? ((sell_pct_ltf - sw_avg_ltf) / sw_avg_ltf) * 100 : 0.0
+                if sw_v_dev > best_vol_dev or sw_l_dev > best_ltf_dev
+                    best_vol_dev := sw_v_dev
+                    best_ltf_dev := sw_l_dev
+                    is_bull_sweep := true
+                    is_bear_sweep := false
+    if trend_dir == 1 and not na(choch_pivot_val)
+        if high > choch_pivot_val and close <= choch_pivot_val
+            if buy_pct_ltf >= ltf_absorption_threshold
+                sw_avg_vol := array.size(choch_high_vol_hist) > 0 ? array.avg(choch_high_vol_hist) : volume
+                sw_avg_ltf := array.size(choch_high_ltf_hist) > 0 ? array.avg(choch_high_ltf_hist) : buy_pct_ltf
+                sw_v_dev := sw_avg_vol > 0 ? ((volume - sw_avg_vol) / sw_avg_vol) * 100 : 0.0
+                sw_l_dev := sw_avg_ltf > 0 ? ((buy_pct_ltf - sw_avg_ltf) / sw_avg_ltf) * 100 : 0.0
+                if sw_v_dev > best_vol_dev or sw_l_dev > best_ltf_dev
+                    best_vol_dev := sw_v_dev
+                    best_ltf_dev := sw_l_dev
+                    is_bear_sweep := true
+                    is_bull_sweep := false
+    else if trend_dir == -1 and not na(choch_pivot_val)
+        if low < choch_pivot_val and close >= choch_pivot_val
+            if sell_pct_ltf >= ltf_absorption_threshold
+                sw_avg_vol := array.size(choch_low_vol_hist) > 0 ? array.avg(choch_low_vol_hist) : volume
+                sw_avg_ltf := array.size(choch_low_ltf_hist) > 0 ? array.avg(choch_low_ltf_hist) : sell_pct_ltf
+                sw_v_dev := sw_avg_vol > 0 ? ((volume - sw_avg_vol) / sw_avg_vol) * 100 : 0.0
+                sw_l_dev := sw_avg_ltf > 0 ? ((sell_pct_ltf - sw_avg_ltf) / sw_avg_ltf) * 100 : 0.0
+                if sw_v_dev > best_vol_dev or sw_l_dev > best_ltf_dev
+                    best_vol_dev := sw_v_dev
+                    best_ltf_dev := sw_l_dev
+                    is_bull_sweep := true
+                    is_bear_sweep := false
+    int size_az_sweep = array.size(active_zones)
+    if size_az_sweep > 0
+        for i = 0 to size_az_sweep - 1 by 1
+            Zone z = array.get(active_zones, i)
+            if z.is_res and high > z.top and close <= z.top
+                if buy_pct_ltf >= ltf_absorption_threshold
+                    sw_avg_vol := array.size(sr_vol_hist) > 0 ? array.avg(sr_vol_hist) : volume
+                    sw_avg_ltf := array.size(sr_ltf_hist) > 0 ? array.avg(sr_ltf_hist) : buy_pct_ltf
+                    sw_v_dev := sw_avg_vol > 0 ? ((volume - sw_avg_vol) / sw_avg_vol) * 100 : 0.0
+                    sw_l_dev := sw_avg_ltf > 0 ? ((buy_pct_ltf - sw_avg_ltf) / sw_avg_ltf) * 100 : 0.0
+                    if sw_v_dev > best_vol_dev or sw_l_dev > best_ltf_dev
+                        best_vol_dev := sw_v_dev
+                        best_ltf_dev := sw_l_dev
+                        is_bear_sweep := true
+                        is_bull_sweep := false
+            if not z.is_res and low < z.bottom and close >= z.bottom
+                if sell_pct_ltf >= ltf_absorption_threshold
+                    sw_avg_vol := array.size(sr_vol_hist) > 0 ? array.avg(sr_vol_hist) : volume
+                    sw_avg_ltf := array.size(sr_ltf_hist) > 0 ? array.avg(sr_ltf_hist) : sell_pct_ltf
+                    sw_v_dev := sw_avg_vol > 0 ? ((volume - sw_avg_vol) / sw_avg_vol) * 100 : 0.0
+                    sw_l_dev := sw_avg_ltf > 0 ? ((sell_pct_ltf - sw_avg_ltf) / sw_avg_ltf) * 100 : 0.0
+                    if sw_v_dev > best_vol_dev or sw_l_dev > best_ltf_dev
+                        best_vol_dev := sw_v_dev
+                        best_ltf_dev := sw_l_dev
+                        is_bull_sweep := true
+                        is_bear_sweep := false
+    int size_fvg_sweep = array.size(fvg_boxes)
+    if size_fvg_sweep > 0
+        for i = 0 to size_fvg_sweep - 1 by 1
+            FVGBox fvg_obj = array.get(fvg_boxes, i)
+            if not fvg_obj.is_broken
+                if not fvg_obj.is_bullish and high > fvg_obj.top and close <= fvg_obj.top
+                    if buy_pct_ltf >= ltf_absorption_threshold
+                        is_bear_sweep := true
+                        is_bull_sweep := false
+                        best_vol_dev := 9999.0
+                        best_ltf_dev := 9999.0
+                if fvg_obj.is_bullish and low < fvg_obj.bottom and close >= fvg_obj.bottom
+                    if sell_pct_ltf >= ltf_absorption_threshold
+                        is_bull_sweep := true
+                        is_bear_sweep := false
+                        best_vol_dev := 9999.0
+                        best_ltf_dev := 9999.0
+    if is_bear_sweep or is_bull_sweep
+        string v_str = best_vol_dev >= 0 ? '+' + str.tostring(best_vol_dev, '#.0') : str.tostring(best_vol_dev, '#.0')
+        string l_str = best_ltf_dev >= 0 ? '+' + str.tostring(best_ltf_dev, '#.0') : str.tostring(best_ltf_dev, '#.0')
+        string sweep_txt = 'Sweep (' + v_str + '% Vol, ' + l_str + '% LTF)'
+        label new_sweep = na
+        if is_bear_sweep
+            new_sweep := label.new(bar_index, high + (label_base_offset * 1.5), text = sweep_txt, color = color_bear_trend, textcolor = color.white, style = label.style_label_down, size = size.small)
+            SweepLabel new_sweep_obj = SweepLabel.new(new_sweep, high, false)
+            array.push(sweep_labels, new_sweep_obj)
+        else if is_bull_sweep
+            new_sweep := label.new(bar_index, low - (label_base_offset * 1.5), text = sweep_txt, color = color_bull_trend, textcolor = color.white, style = label.style_label_up, size = size.small)
+            SweepLabel new_sweep_obj = SweepLabel.new(new_sweep, low, true)
+            array.push(sweep_labels, new_sweep_obj)
+int tf_sec = timeframe.in_seconds(timeframe.period)
+bool is_intraday_tf = tf_sec < 86400
+float rvol_value = 1.0
+if is_intraday_tf
+    float elapsed_sec = (timenow - time) / 1000.0
+    float elapsed_fraction = tf_sec > 0 ? math.min(elapsed_sec / tf_sec, 1.0) : 1.0
+    elapsed_fraction := math.max(elapsed_fraction, 0.1)
+    float projected_vol = elapsed_fraction > 0 ? volume / elapsed_fraction : volume
+    int est_bpd = math.max(1, int(math.round(23400.0 / tf_sec)))
+    int rvol_days = tf_sec >= 300 ? 20 : tf_sec >= 60 ? 10 : 5
+    int max_rvol_steps = math.min(rvol_days, int(bar_index / math.max(1, est_bpd)))
+    if max_rvol_steps > 0 and est_bpd > 0
+        float sum_same_time_vol = 0.0
+        int cnt_same_time = 0
+        for step_i = 1 to max_rvol_steps by 1
+            int lb_idx = step_i * est_bpd
+            if lb_idx <= bar_index
+                sum_same_time_vol := sum_same_time_vol + volume[lb_idx]
+                cnt_same_time := cnt_same_time + 1
+        if cnt_same_time > 0
+            float avg_st = sum_same_time_vol / cnt_same_time
+            rvol_value := avg_st > 0 ? projected_vol / avg_st : 1.0
+else
+    float avg_vol_daily = ta.sma(volume, 20)
+    rvol_value := na(avg_vol_daily) or avg_vol_daily <= 0 ? 1.0 : volume / avg_vol_daily
+if show_rvol_label
+    if na(rvol_label)
+        rvol_label := label.new(bar_index, high, text = '', style = label.style_label_down, size = size.small, color = color.new(color.gray, 50), textcolor = color.white)
+    label.set_xy(rvol_label, bar_index, high + atr_val * 0.5)
+    label.set_text(rvol_label, 'RVOL ' + str.tostring(rvol_value, '#.##'))
+    label.set_color(rvol_label, rvol_value >= rvol_min_threshold ? color.new(color_sup_market, 20) : color.new(color_res_market, 20))
+    label.set_textcolor(rvol_label, color.white)
+int i_setup_mgmt = 0
+while i_setup_mgmt < array.size(active_setups)
+    SetupVisuals s = array.get(active_setups, i_setup_mgmt)
+    if s.status == 3
+        int bars_since_trigger = bar_index - s.creation_bar
+        bool breakout_occurred = s.is_long ? high > s.breakout_level : low < s.breakout_level
+        // V34: Check if trigger is still valid (not invalidated by close)
+        bool trigger_invalidated = false
+        if s.is_long and close < s.trigger_price
+            trigger_invalidated := true
+        else if not s.is_long and close > s.trigger_price
+            trigger_invalidated := true
+        if trigger_invalidated
+            s.status := 5
+            zones_cancelled_window := zones_cancelled_window + 1
+            line.delete(s.entry_line)
+            label.delete(s.setup_lbl)
+            line.delete(s.sl_line)
+            line.delete(s.tp_line)
+            array.remove(active_setups, i_setup_mgmt)
+            continue
+        if bars_since_trigger > breakout_window
+            s.status := 5
+            zones_cancelled_window := zones_cancelled_window + 1
+            line.delete(s.entry_line)
+            label.delete(s.setup_lbl)
+            line.delete(s.sl_line)
+            line.delete(s.tp_line)
+            array.remove(active_setups, i_setup_mgmt)
+            continue
+        else if breakout_occurred
+            s.status := 0
+            s.triggered := true
+        else
+            line.set_x2(s.entry_line, bar_index + 10)
+            label.set_x(s.setup_lbl, bar_index + 10)
+            label.set_text(s.setup_lbl, str.tostring(s.score) + ' | ⏳ ' + str.tostring(bars_since_trigger) + '/' + str.tostring(breakout_window))
+            line.set_x2(s.sl_line, bar_index + 10)
+            line.set_x2(s.tp_line, bar_index + 10)
+            i_setup_mgmt := i_setup_mgmt + 1
+            continue
+    if s.status != 0
+        i_setup_mgmt := i_setup_mgmt + 1
+        continue
+    if not s.triggered
+        if s.is_long and high >= s.entry_price
+            s.triggered := true
+        else if not s.is_long and low <= s.entry_price
+            s.triggered := true
+    bool invalidation = s.is_long ? (not na(lowest_since_choch) and low < s.trigger_price) : (not na(highest_since_choch) and high > s.trigger_price)
+    if invalidation
+        if s.triggered
+            s.status := 2
+            zones_failed := zones_failed + 1
+        line.delete(s.entry_line)
+        label.delete(s.setup_lbl)
+        line.delete(s.sl_line)
+        line.delete(s.tp_line)
+        array.remove(active_setups, i_setup_mgmt)
+        continue
+    float risk = math.abs(s.entry_price - s.sl_price)
+    float respected_target = s.is_long ? s.entry_price + risk : s.entry_price - risk
+    bool is_respected = s.is_long ? high >= respected_target : low <= respected_target
+    bool is_failed = s.is_long ? close < s.sl_price : close > s.sl_price
+    if is_respected
+        s.status := 1
+        zones_respected := zones_respected + 1
+        line.delete(s.entry_line)
+        label.delete(s.setup_lbl)
+        line.delete(s.sl_line)
+        line.delete(s.tp_line)
+        array.remove(active_setups, i_setup_mgmt)
+        continue
+    if is_failed
+        s.status := 2
+        zones_failed := zones_failed + 1
+        line.delete(s.entry_line)
+        label.delete(s.setup_lbl)
+        line.delete(s.sl_line)
+        line.delete(s.tp_line)
+        array.remove(active_setups, i_setup_mgmt)
+        continue
+    line.set_x2(s.entry_line, bar_index + 10)
+    label.set_x(s.setup_lbl, bar_index + 10)
+    line.set_x2(s.sl_line, bar_index + 10)
+    line.set_x2(s.tp_line, bar_index + 10)
+    i_setup_mgmt := i_setup_mgmt + 1
+if show_setups
+    bool trigger_long = (is_bull_pattern and is_local_trough) or is_bull_sweep
+    bool trigger_short = (is_bear_pattern and is_local_peak) or is_bear_sweep
+    if trigger_long or trigger_short
+        bool is_long = trigger_long
+        bool valid_trigger_position = false
+        if is_long
+            bool is_lowest_since_choch = not na(lowest_since_choch) and low <= lowest_since_choch
+            bool is_absolute_low = (trend_dir == -1) and not na(trend_extreme) and low <= trend_extreme
+            valid_trigger_position := is_lowest_since_choch or is_absolute_low
+        else
+            bool is_highest_since_choch = not na(highest_since_choch) and high >= highest_since_choch
+            bool is_absolute_high = (trend_dir == 1) and not na(trend_extreme) and high >= trend_extreme
+            valid_trigger_position := is_highest_since_choch or is_absolute_high
+        int base_score = 30
+        int context_score = 0
+        if (is_long and trend_dir == 1) or (not is_long and trend_dir == -1)
+            context_score := context_score + 10
+        if trend_confirmed and ((is_long and trend_dir == 1) or (not is_long and trend_dir == -1))
+            context_score := context_score + 10
+        int location_score = 0
+        if confluence_count >= 1
+            location_score := location_score + 5
+        if confluence_count >= 2
+            location_score := location_score + 5
+        if confluence_count >= 3
+            location_score := location_score + 5
+        if confluence_count >= 4
+            location_score := location_score + 5
+        if confluence_count >= 5
+            location_score := location_score + 5
+        int pullback_score = 0
+        if is_in_pullback
+            float pullback_vol = (cum_buy_vol + cum_sell_vol) - impulse_vol
+            int pb_start_bar = not na(trend_absolute_extreme_idx) ? trend_absolute_extreme_idx : trend_start_bar
+            float pullback_bars = math.max(1, bar_index - pb_start_bar)
+            float avg_impulse_vol = impulse_bars > 0 ? impulse_vol / impulse_bars : volume
+            float avg_pullback_vol = pullback_bars > 0 ? pullback_vol / pullback_bars : volume
+            if avg_pullback_vol < avg_impulse_vol * 0.8
+                pullback_score := 10
+            else if avg_pullback_vol > avg_impulse_vol * 1.2
+                pullback_score := 2
+            else
+                pullback_score := 5
+        int trigger_score = 0
+        if is_long
+            if is_bull_pattern and is_bull_sweep
+                trigger_score := 15
+            else if is_bull_sweep
+                trigger_score := 10
+            else if is_bull_pattern
+                trigger_score := 8
+        else
+            if is_bear_pattern and is_bear_sweep
+                trigger_score := 15
+            else if is_bear_sweep
+                trigger_score := 10
+            else if is_bear_pattern
+                trigger_score := 8
+        bool ema25_against = is_long ? close < ema25 : close > ema25
+        bool ema50_against = is_long ? close < ema50 : close > ema50
+        bool ema200_against = is_long ? close < ema200 : close > ema200
+        int ema_direction_penalty = 0
+        if ema25_against
+            ema_direction_penalty := ema_direction_penalty - 5
+        if ema50_against
+            ema_direction_penalty := ema_direction_penalty - 5
+        if ema200_against
+            ema_direction_penalty := ema_direction_penalty - 5
+        int vwap_score = 0
+        if is_long and close > vwap_value
+            vwap_score := vwap_score + 8
+        else if is_long and close < vwap_value
+            vwap_score := vwap_score - 8
+        else if not is_long and close < vwap_value
+            vwap_score := vwap_score + 8
+        else if not is_long and close > vwap_value
+            vwap_score := vwap_score - 8
+        float vwap_touch_tol = atr_val * 0.15
+        bool vwap_touch = low <= vwap_value + vwap_touch_tol and high >= vwap_value - vwap_touch_tol
+        if vwap_touch
+            if is_long and close >= vwap_value
+                vwap_score := vwap_score + 5
+            else if not is_long and close <= vwap_value
+                vwap_score := vwap_score + 5
+        bool sigma1_lower_touch = low <= vwap_lower1 + vwap_touch_tol and high >= vwap_lower1 - vwap_touch_tol
+        bool sigma1_upper_touch = low <= vwap_upper1 + vwap_touch_tol and high >= vwap_upper1 - vwap_touch_tol
+        if is_long and sigma1_lower_touch
+            vwap_score := vwap_score + 3
+        else if not is_long and sigma1_upper_touch
+            vwap_score := vwap_score + 3
+        bool sigma2_lower_touch = low <= vwap_lower2 + vwap_touch_tol and high >= vwap_lower2 - vwap_touch_tol
+        bool sigma2_upper_touch = low <= vwap_upper2 + vwap_touch_tol and high >= vwap_upper2 - vwap_touch_tol
+        if is_long and sigma2_lower_touch
+            vwap_score := vwap_score + 5
+        else if not is_long and sigma2_upper_touch
+            vwap_score := vwap_score + 5
+        int total_score = base_score + context_score + location_score + pullback_score + trigger_score + ema_direction_penalty + vwap_score
+        total_score := math.max(0, math.min(100, total_score))
+        if total_score >= min_score_threshold and valid_trigger_position
+            float entry_p = is_long ? high : low
+            float sl_p = is_long ? low - (atr_val * 0.2) : high + (atr_val * 0.2)
+            if is_long and not na(bull_pattern_low)
+                sl_p := math.min(sl_p, bull_pattern_low - (atr_val * 0.1))
+            if not is_long and not na(bear_pattern_high)
+                sl_p := math.max(sl_p, bear_pattern_high + (atr_val * 0.1))
+            float risk = math.abs(entry_p - sl_p)
+            float tp_p = is_long ? entry_p + (risk * rr_ratio) : entry_p - (risk * rr_ratio)
+            bool already_traded_zone = false
+            int size_traded = array.size(traded_entries_prices)
+            if size_traded > 0
+                for i = 0 to size_traded - 1 by 1
+                    float prev_entry = array.get(traded_entries_prices, i)
+                    if math.abs(entry_p - prev_entry) < (atr_val * 1.0)
+                        bool better_trigger = is_long ? (entry_p < prev_entry) : (entry_p > prev_entry)
+                        already_traded_zone := not better_trigger
+                        break
+            if not already_traded_zone
+                if array.size(active_setups) >= 3
+                    SetupVisuals old_s = array.shift(active_setups)
+                    line.delete(old_s.entry_line)
+                    label.delete(old_s.setup_lbl)
+                    line.delete(old_s.sl_line)
+                    line.delete(old_s.tp_line)
+                color setup_col = is_long ? color_bull_trend : color_bear_trend
+                string ema_info = ''
+                if ema_direction_penalty < 0
+                    ema_info := ' | EMA Dir: ' + str.tostring(ema_direction_penalty)
+                string lbl_txt = (is_long ? 'LONG' : 'SHORT') + ' | Score: ' + str.tostring(total_score) + ema_info + ' | ⏳'
+                line el = line.new(bar_index, entry_p, bar_index + 10, entry_p, color = color.new(color.gray, 0), style = line.style_dashed, width = 2)
+                label lbl = label.new(bar_index + 10, entry_p, text = lbl_txt, color = setup_col, textcolor = color.white, style = label.style_label_left, size = size.small)
+                line sl = line.new(bar_index, sl_p, bar_index + 10, sl_p, color = color.new(color.red, 0), style = line.style_solid, width = 2)
+                line tp = line.new(bar_index, tp_p, bar_index + 10, tp_p, color = color.new(color.green, 0), style = line.style_solid, width = 2)
+                float trigger_p = is_long ? low : high
+                float breakout_lvl = entry_p
+                // V34: Prevent duplicate pending positions on same level
+                bool duplicate_pending = false
+                int size_active_check = array.size(active_setups)
+                if size_active_check > 0
+                    for i = 0 to size_active_check - 1 by 1
+                        SetupVisuals existing = array.get(active_setups, i)
+                        if existing.status == 3 and math.abs(entry_p - existing.entry_price) < (atr_val * 0.5)
+                            duplicate_pending := true
+                            break
+                if duplicate_pending
+                    line.delete(el)
+                    label.delete(lbl)
+                    line.delete(sl)
+                    line.delete(tp)
+                else
+                    SetupVisuals ns = SetupVisuals.new(el, lbl, sl, tp, entry_p, sl_p, tp_p, is_long, bar_index, 3, total_score, false, trigger_p, breakout_lvl)
+                    array.push(active_setups, ns)
+                    array.push(traded_entries_prices, entry_p)
+if barstate.islast
+    int size_active_last = array.size(active_zones)
+    if size_active_last > 0
+        for i = 0 to size_active_last - 1 by 1
+            Zone z = array.get(active_zones, i)
+            box.set_right(z.bx, bar_index + 20)
+    if not na(ms_trend_line)
+        line.set_x2(ms_trend_line, bar_index)
+    if not na(choch_line)
+        line.set_x2(choch_line, bar_index)
+        label.set_x(choch_label, bar_index)
+    if show_fib and not na(fib_0_618)
+        line.set_x2(fib_0_618, bar_index)
+        line.set_x2(fib_0_500, bar_index)
+        line.set_x2(fib_0_382, bar_index)
+        label.set_x(lbl_0_618, bar_index)
+        label.set_x(lbl_0_500, bar_index)
+        label.set_x(lbl_0_382, bar_index)
+    int size_fvg_last = array.size(fvg_boxes)
+    if size_fvg_last > 0
+        for i = 0 to size_fvg_last - 1 by 1
+            FVGBox fvg_obj = array.get(fvg_boxes, i)
+            box.set_right(fvg_obj.bx, bar_index + 20)
+    int total_setups = zones_respected + zones_failed
+    float respect_rate = total_setups > 0 ? (zones_respected / total_setups) * 100 : 0
+    int total_cancelled = zones_cancelled_vol + zones_cancelled_window
+    table.cell(stats_table, 0, 0, text = 'Total Setups', bgcolor = color.new(color.white, 100), text_color = color.black)
+    table.cell(stats_table, 1, 0, text = str.tostring(total_setups), bgcolor = color.new(color.white, 100), text_color = color.black)
+    table.cell(stats_table, 0, 1, text = 'Respected (' + str.tostring(respect_rate, '#.#') + '%)', bgcolor = color.new(color_sup_market, 80), text_color = color.white)
+    table.cell(stats_table, 1, 1, text = str.tostring(zones_respected), bgcolor = color.new(color_sup_market, 80), text_color = color.white)
+    table.cell(stats_table, 0, 2, text = 'Failed', bgcolor = color.new(color_res_market, 80), text_color = color.white)
+    table.cell(stats_table, 1, 2, text = str.tostring(zones_failed), bgcolor = color.new(color_res_market, 80), text_color = color.white)
+    table.cell(stats_table, 0, 3, text = 'Cancelled (Win)', bgcolor = color.new(color.gray, 80), text_color = color.white)
+    table.cell(stats_table, 1, 3, text = str.tostring(total_cancelled), bgcolor = color.new(color.gray, 80), text_color = color.white)
+bool vp_needs_recalc = barstate.islast or (vwap_period_start_bar != last_vp_calc_start)
+if show_vp
+    if vp_needs_recalc
+        int size_vp_boxes_rc = array.size(vp_boxes)
+        if size_vp_boxes_rc > 0
+            for i = 0 to size_vp_boxes_rc - 1 by 1
+                box.delete(array.get(vp_boxes, i))
+            array.clear(vp_boxes)
+        array.clear(hva_is_bullish)
+        int size_vp_lbls_rc = array.size(vp_labels)
+        if size_vp_lbls_rc > 0
+            for i = 0 to size_vp_lbls_rc - 1 by 1
+                label.delete(array.get(vp_labels, i))
+            array.clear(vp_labels)
+        int size_hva_boxes_rc = array.size(hva_display_boxes)
+        if size_hva_boxes_rc > 0
+            for i = 0 to size_hva_boxes_rc - 1 by 1
+                box.delete(array.get(hva_display_boxes, i))
+            array.clear(hva_display_boxes)
+        int lookback_actual = bar_index - vwap_period_start_bar
+        lookback_actual := math.min(lookback_actual, 1000)
+        if lookback_actual > 0
+            float max_p = -999999.0
+            float min_p = 99999999.0
+            for i = 0 to lookback_actual - 1 by 1
+                if high[i] > max_p
+                    max_p := high[i]
+                if low[i] < min_p
+                    min_p := low[i]
+            float bin_size = (max_p - min_p) / bins_count
+            if bin_size > 0
+                array<float> bin_buy_volumes = array.new_float(bins_count, 0.0)
+                array<float> bin_sell_volumes = array.new_float(bins_count, 0.0)
+                float total_vp_vol = 0.0
+                for i = 0 to lookback_actual - 1 by 1
+                    float avg_price = (high[i] + low[i] + close[i]) / 3
+                    int bin_index = math.min(bins_count - 1, math.max(0, int((avg_price - min_p) / bin_size)))
+                    float b_v = candle_buy_vol_ltf[i]
+                    float s_v = candle_sell_vol_ltf[i]
+                    array.set(bin_buy_volumes, bin_index, array.get(bin_buy_volumes, bin_index) + b_v)
+                    array.set(bin_sell_volumes, bin_index, array.get(bin_sell_volumes, bin_index) + s_v)
+                    total_vp_vol := total_vp_vol + (b_v + s_v)
+                array<int> selected_bins = array.new_int(0)
+                int proximity_threshold = math.max(1, int(bins_count * 0.05))
+                for a = 1 to 5 by 1
+                    float top_vol = -1.0
+                    int top_idx = -1
+                    for j = 0 to bins_count - 1 by 1
+                        bool too_close = false
+                        int size_sel = array.size(selected_bins)
+                        if size_sel > 0
+                            for k = 0 to size_sel - 1 by 1
+                                if math.abs(j - array.get(selected_bins, k)) <= proximity_threshold
+                                    too_close := true
+                                    break
+                        if not too_close
+                            float current_vol = array.get(bin_buy_volumes, j) + array.get(bin_sell_volumes, j)
+                            if current_vol > top_vol
+                                top_vol := current_vol
+                                top_idx := j
+                    if top_idx != -1
+                        array.push(selected_bins, top_idx)
+                        float area_mid = min_p + (top_idx * bin_size) + (bin_size / 2)
+                        float cluster_top = area_mid + (bin_size / 2) + (atr_val * 0.2)
+                        float cluster_bot = area_mid - (bin_size / 2) - (atr_val * 0.2)
+                        float t_buy = array.get(bin_buy_volumes, top_idx)
+                        float t_sell = array.get(bin_sell_volumes, top_idx)
+                        box vp_bx = box.new(vwap_period_start_bar, cluster_top, bar_index + 20, cluster_bot, border_color = color.new(color.white, 100), border_width = 0, bgcolor = color.new(color.white, 100))
+                        array.push(vp_boxes, vp_bx)
+                        array.push(hva_is_bullish, t_buy > t_sell)
+                        float vol_pct = total_vp_vol > 0 ? ((t_buy + t_sell) / total_vp_vol) * 100 : 0
+                        float bin_total = t_buy + t_sell
+                        float buy_dom_pct = bin_total > 0 ? (t_buy / bin_total) * 100 : 0.0
+                        float sell_dom_pct = bin_total > 0 ? (t_sell / bin_total) * 100 : 0.0
+                        string hva_text = ''
+                        color text_col = na
+                        if t_buy > t_sell
+                            hva_text := str.tostring(vol_pct, '#.#') + '% | ' + str.tostring(buy_dom_pct, '#') + '% B'
+                            text_col := color_sup_market
+                        else
+                            hva_text := str.tostring(vol_pct, '#.#') + '% | ' + str.tostring(sell_dom_pct, '#') + '% S'
+                            text_col := color_res_market
+                        box hva_bx = box.new(bar_index + 20, cluster_top, bar_index + 42, cluster_bot, border_color = color.new(color.white, 100), bgcolor = color.new(color.gray, 70), text = hva_text, text_color = text_col, text_halign = text.align_center, text_valign = text.align_center, text_size = size.normal)
+                        array.push(hva_display_boxes, hva_bx)
+        last_vp_calc_start := vwap_period_start_bar
+    else
+        int size_vp_boxes_upd = array.size(vp_boxes)
+        if size_vp_boxes_upd > 0
+            for i = 0 to size_vp_boxes_upd - 1 by 1
+                box.set_right(array.get(vp_boxes, i), bar_index + 20)
+        int size_vp_lbls_upd = array.size(vp_labels)
+        if size_vp_lbls_upd > 0
+            for i = 0 to size_vp_lbls_upd - 1 by 1
+                label.set_x(array.get(vp_labels, i), bar_index + 20)
+        int size_hva_boxes_upd = array.size(hva_display_boxes)
+        if size_hva_boxes_upd > 0
+            for i = 0 to size_hva_boxes_upd - 1 by 1
+                box b = array.get(hva_display_boxes, i)
+                box.set_left(b, bar_index + 20)
+                box.set_right(b, bar_index + 42)
+if barstate.islast
+    ai_status := 0
+    int size_setups_ai = array.size(active_setups)
+    if size_setups_ai > 0
+        for i = 0 to size_setups_ai - 1 by 1
+            SetupVisuals s = array.get(active_setups, i)
+            if s.status == 3
+                ai_status := s.is_long ? 1 : -1
+                break
+plot(ai_status, title = 'AI_STATUS', color = color.blue, display = display.status_line)
+array<string> char_map = array.from(
+     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
+     'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
+     'U', 'V', 'W', 'X', 'Y', 'Z',
+     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+     '.', '-', '_', '/', '=', '+', '$', '#', '&', '!',
+     '%', '^', '*', ' ', '@', '~', '(', ')', '[', ']',
+     '{', '}', '|', ':', ';', ',', '?', '<', '>'
+     )
+var int ai_fp = 0
+if ai_fp == 0
+    string ticker_str = syminfo.ticker
+    int ticker_len = str.length(ticker_str)
+    int start_pos = math.max(0, ticker_len - 6)
+    string last_chars = str.substring(ticker_str, start_pos, ticker_len)
+    int last_chars_len = str.length(last_chars)
+    int prime_mod = 1000000007
+    int base = 64
+    float encoded_val = 0.0
+    if last_chars_len > 0
+        for i = 0 to last_chars_len - 1 by 1
+            string ch = str.substring(last_chars, i, i + 1)
+            int char_idx = array.indexof(char_map, ch)
+            if char_idx >= 0
+                encoded_val := (encoded_val * base + char_idx) % prime_mod
+    ai_fp := int(encoded_val)
+plot(ai_fp, title = 'AI_FP', color = color.blue, display = display.status_line)
+plot(show_ema25  ? ema25  : na, title = 'EMA 25',  color = color_ema25,  linewidth = 1)
+plot(show_ema50  ? ema50  : na, title = 'EMA 50',  color = color_ema50,  linewidth = 1)
+plot(show_ema200 ? ema200 : na, title = 'EMA 200', color = color_ema200, linewidth = 1)
+plot(show_vwap ? vwap_value : na, title = 'VWAP', color = color.yellow, linewidth = 2)
+plot(show_vwap_bands ? vwap_upper1 : na, title = 'VWAP +1σ', color = #00bcd4, linewidth = 1)
+plot(show_vwap_bands ? vwap_lower1 : na, title = 'VWAP -1σ', color = #00bcd4, linewidth = 1)
+plot(show_vwap_bands ? vwap_upper2 : na, title = 'VWAP +2σ', color = #9c27b0, linewidth = 1)
+plot(show_vwap_bands ? vwap_lower2 : na, title = 'VWAP -2σ', color = #9c27b0, linewidth = 1)
