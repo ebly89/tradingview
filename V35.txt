@@ -89,11 +89,18 @@ vwap_cum_vol_price := vwap_cum_vol_price + volume * vwap_tp
 vwap_cum_vol_price2 := vwap_cum_vol_price2 + volume * vwap_tp * vwap_tp
 float vwap_value = vwap_cum_vol > 0 ? vwap_cum_vol_price / vwap_cum_vol : vwap_tp
 float vwap_variance = vwap_cum_vol > 0 ? (vwap_cum_vol_price2 / vwap_cum_vol) - (vwap_value * vwap_value) : 0.0
-float vwap_std = math.sqrt(math.max(0.0, vwap_variance))
-float vwap_upper1 = vwap_value + vwap_std
-float vwap_lower1 = vwap_value - vwap_std
-float vwap_upper2 = vwap_value + 2 * vwap_std
-float vwap_lower2 = vwap_value - 2 * vwap_std
+float vwap_std_raw = math.sqrt(math.max(0.0, vwap_variance))
+// Dotted-line effect: draw the band on alternating bars (gap = dot spacing)
+bool vwap_band_on = bar_index % 2 == 0
+float vwap_std = vwap_std_raw
+float vwap_upper1_v = vwap_value + vwap_std_raw
+float vwap_lower1_v = vwap_value - vwap_std_raw
+float vwap_upper2_v = vwap_value + 2 * vwap_std_raw
+float vwap_lower2_v = vwap_value - 2 * vwap_std_raw
+float vwap_upper1 = vwap_band_on ? vwap_upper1_v : na
+float vwap_lower1 = vwap_band_on ? vwap_lower1_v : na
+float vwap_upper2 = vwap_band_on ? vwap_upper2_v : na
+float vwap_lower2 = vwap_band_on ? vwap_lower2_v : na
 ha_trueTicker = ticker.new(syminfo.prefix, syminfo.ticker)
 [ha_trueOpen, ha_trueHigh, ha_trueLow, ha_trueClose] = request.security(ha_trueTicker, timeframe.period, [open, high, low, close])
 ha_atrSeries = ta.atr(ha_internalAtrLength)
@@ -2169,14 +2176,14 @@ if show_setups
                 vwap_score := vwap_score + 5
             else if not is_long and close <= vwap_value
                 vwap_score := vwap_score + 5
-        bool sigma1_lower_touch = low <= vwap_lower1 + vwap_touch_tol and high >= vwap_lower1 - vwap_touch_tol
-        bool sigma1_upper_touch = low <= vwap_upper1 + vwap_touch_tol and high >= vwap_upper1 - vwap_touch_tol
+        bool sigma1_lower_touch = low <= vwap_lower1_v + vwap_touch_tol and high >= vwap_lower1_v - vwap_touch_tol
+        bool sigma1_upper_touch = low <= vwap_upper1_v + vwap_touch_tol and high >= vwap_upper1_v - vwap_touch_tol
         if is_long and sigma1_lower_touch
             vwap_score := vwap_score + 3
         else if not is_long and sigma1_upper_touch
             vwap_score := vwap_score + 3
-        bool sigma2_lower_touch = low <= vwap_lower2 + vwap_touch_tol and high >= vwap_lower2 - vwap_touch_tol
-        bool sigma2_upper_touch = low <= vwap_upper2 + vwap_touch_tol and high >= vwap_upper2 - vwap_touch_tol
+        bool sigma2_lower_touch = low <= vwap_lower2_v + vwap_touch_tol and high >= vwap_lower2_v - vwap_touch_tol
+        bool sigma2_upper_touch = low <= vwap_upper2_v + vwap_touch_tol and high >= vwap_upper2_v - vwap_touch_tol
         if is_long and sigma2_lower_touch
             vwap_score := vwap_score + 5
         else if not is_long and sigma2_upper_touch
@@ -2412,7 +2419,7 @@ plot(show_ema25  ? ema25  : na, title = 'EMA 25',  color = color_ema25,  linewid
 plot(show_ema50  ? ema50  : na, title = 'EMA 50',  color = color_ema50,  linewidth = 1)
 plot(show_ema200 ? ema200 : na, title = 'EMA 200', color = color_ema200, linewidth = 1)
 plot(show_vwap ? vwap_value : na, title = 'VWAP', color = color.yellow, linewidth = 2)
-plot(show_vwap_bands ? vwap_upper1 : na, title = 'VWAP +1σ', color = #00bcd4, style = plot.style_circles, linewidth = 2)
-plot(show_vwap_bands ? vwap_lower1 : na, title = 'VWAP -1σ', color = #00bcd4, style = plot.style_circles, linewidth = 2)
-plot(show_vwap_bands ? vwap_upper2 : na, title = 'VWAP +2σ', color = #9c27b0, style = plot.style_circles, linewidth = 2)
-plot(show_vwap_bands ? vwap_lower2 : na, title = 'VWAP -2σ', color = #9c27b0, style = plot.style_circles, linewidth = 2)
+plot(show_vwap_bands ? vwap_upper1 : na, title = 'VWAP +1σ', color = #00bcd4, style = plot.style_linebr, linewidth = 2)
+plot(show_vwap_bands ? vwap_lower1 : na, title = 'VWAP -1σ', color = #00bcd4, style = plot.style_linebr, linewidth = 2)
+plot(show_vwap_bands ? vwap_upper2 : na, title = 'VWAP +2σ', color = #9c27b0, style = plot.style_linebr, linewidth = 2)
+plot(show_vwap_bands ? vwap_lower2 : na, title = 'VWAP -2σ', color = #9c27b0, style = plot.style_linebr, linewidth = 2)
