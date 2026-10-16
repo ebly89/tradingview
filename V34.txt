@@ -1,5 +1,5 @@
 //@version=6
-indicator('Professional S/R & ATR Optimized Trendlines V34 + Trigger Fix', overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 500)
+indicator('Professional S/R & ATR Optimized Trendlines V35 + Outlier Candle Filter', overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 500)
 color_res_market = #c23131
 color_sup_market = #0a846d
 color_bear_trend = #c23131
@@ -52,6 +52,10 @@ vwap_period = input.string('יומית', 'תקופת ייחוס לממוצע מ�
 rvol_min_threshold = input.float(0.8, 'סף נפח מינימלי לפריצה (RVOL)', minval = 0.1, maxval = 3.0, step = 0.1, group = 'RVOL Breakout Filter')
 breakout_window = input.int(3, 'חלון פריצה (נרות)', minval = 1, maxval = 10, group = 'RVOL Breakout Filter')
 show_rvol_label = input.bool(true, 'הצג לייבל RVOL', group = 'RVOL Breakout Filter')
+show_outlier_filter = input.bool(true, 'הפעל סינון נרות חריגים (Outlier Filter)', group = 'Outlier Candle Filter', tooltip = 'סונן נרות תבנית/פוזיציה בגודל לא פרופורציונלי ביחס לתנודתיות המגמה (מבוסס ATR ו-HA). מונע Engulfing מסיבי שיוצר פוזיציה לא ריאלית.')
+outlier_atr_mult    = input.float(2.5, 'תקרת גודל נר כמכפיל ATR', minval = 0.5, step = 0.1, group = 'Outlier Candle Filter', tooltip = 'אם טווח הנר (True Range) גדול פי X מ-ATR של מגמת ה-HA (מחושב על בסיס מחירי HA בלבד - ללא request.security), הנר נחשב חריג.')
+outlier_range_mult  = input.float(8.0, 'תקרת יחס מהלך הנר לתנודתיות המגמה', minval = 1.0, step = 0.5, group = 'Outlier Candle Filter', tooltip = 'אם מהלך הנר (High-Low) גדול פי X מסך התנודתיות שבנתה את המגמה (|HA Close - HA Start|), הנר נחשב חריג ביחס למגמה.')
+outlier_body_pct_min = input.float(55.0, 'אחוז גוף מינימלי באנגלפינג חריג (%)', minval = 0.0, maxval = 100.0, step = 5.0, group = 'Outlier Candle Filter', tooltip = 'אנגלפינג שבו הגוף תופס פחות מהאחוז הזה מטווח הנר (זנבות קיצוניים) - נפסל גם הוא.')
 atr_val = ta.atr(14)
 max_bars_back(volume, 2000)
 float label_base_offset = atr_val * 1.5
@@ -1732,14 +1736,36 @@ else
 float body = math.abs(close - open)
 float wick_up = high - math.max(open, close)
 float wick_dn = math.min(open, close) - low
-bool bull_engulfing = close > open and close[1] < open[1] and close >= open[1] and open <= close[1] and high >= high[1] and low <= low[1]
-bool bear_engulfing = close < open and close[1] > open[1] and close <= open[1] and open >= close[1] and high >= high[1] and low <= low[1]
+// ===== Outlier Candle Filter (V35) - סונן נרות חריגים/לא פרופורציונליים לפני זיהוי התבניות =====
+// עיצוב לביצועים: שני המדדים מחושבים ממשתנים קיימים בלבד (O(1) לשורה), ללא request.security נוסף,
+// ללא היסטוריית series חדשה וללא לולאות - כך שזמן הטעינה של הסקריפט לא נפגע.
+float ha_atr_val      = ha_atrSeries // חוזר על סדרת ה-ATR של HA שכבר מחושבת בשורה 99 - ללא קריאת ta.atr וללא buffer חדש
+float candle_true_rng = math.max(high - low, math.max(math.abs(high - close[1]), math.abs(low - close[1])))
+// מדד 1: גודל הנר ביחס לתנודתיות המגמה (ATR על סדרת מחירי HA - מסונכרן עם המבנה שנקבע ע"י פיבוטי HA)
+bool outlier_vs_atr = show_outlier_filter and trend_dir != 0 and candle_true_rng > ha_atr_val * outlier_atr_mult
+// מדד 2: גודל הנר ביחס לסך המהלך שבנה את המגמה (יחס פרופורציונלי למגמה)
+float trend_span_ha = (not na(trend_start_price) and not na(ha_haClose)) ? math.abs(ha_haClose - trend_start_price) : na
+bool outlier_vs_trend = show_outlier_filter and not na(trend_span_ha) and trend_span_ha > 0 and (high - low) > trend_span_ha * outlier_range_mult
+// מדד 3: אנגלפינג חריג עם גוף לא-דומיננטי (זנבות קיצוניים = מהלך לא ריאלי)
+float engulf_body_pct = (high - low) > 0 ? (body / (high - low)) * 100 : 100.0
+bool bull_engulfing_raw = close > open and close[1] < open[1] and close >= open[1] and open <= close[1] and high >= high[1] and low <= low[1]
+bool bear_engulfing_raw = close < open and close[1] > open[1] and close <= open[1] and open >= close[1] and high >= high[1] and low <= low[1]
+bool outlier_engulf_weak_body = show_outlier_filter and (bull_engulfing_raw or bear_engulfing_raw) and engulf_body_pct < outlier_body_pct_min
+// הדגלה: Dashed X אדום מעל הנר החריג (נמחק אוטומטית לפי max_labels_count, ללא overhead)
+if show_outlier_filter and (outlier_vs_atr or outlier_vs_trend or outlier_engulf_weak_body)
+    label.new(bar_index, high + label_base_offset * 0.3, text = 'X', color = color.new(color.red, 60), textcolor = color.red, style = label.style_label_down, size = size.tiny)
+bool bull_engulfing = bull_engulfing_raw and not (outlier_vs_atr or outlier_vs_trend or outlier_engulf_weak_body)
+bool bear_engulfing = bear_engulfing_raw and not (outlier_vs_atr or outlier_vs_trend or outlier_engulf_weak_body)
 bool hammer = wick_dn >= 2 * body and wick_up <= wick_dn * 0.5
 bool shooting_star = wick_up >= 2 * body and wick_dn <=  wick_up * 0.5
 bool morning_star = close[2] < open[2] and math.abs(close[1] - open[1]) < (high[1] - low[1]) * 0.5 and close > open and close > open[2] - (open[2] - close[2]) / 2
 bool evening_star = close[2] > open[2] and math.abs(close[1] - open[1]) < (high[1] - low[1]) * 0.5 and close < open and close < open[2] - (close[2] - open[2]) / 2
 bool is_bull_pattern = bull_engulfing or hammer or morning_star
 bool is_bear_pattern = bear_engulfing or shooting_star or evening_star
+// סינון נרות חריגים: תבניות היפוך (לרבות Engulfing מסיבי) שנוצרו על נר לא פרופורציונלי נפסלות
+if outlier_vs_atr or outlier_vs_trend or outlier_engulf_weak_body
+    is_bull_pattern := false
+    is_bear_pattern := false
 string pattern_name = bull_engulfing ? 'B.Engulf' : hammer ? 'Hammer' : morning_star ? 'M.Star' : bear_engulfing ? 'Br.Engulf' : shooting_star ? 'S.Star' : 'E.Star'
 float pattern_extreme = na
 if trend_dir == 1
@@ -1921,6 +1947,11 @@ if show_sweeps and not na(trend_start_bar) and bar_index >= trend_start_bar
                         is_bear_sweep := false
                         best_vol_dev := 9999.0
                         best_ltf_dev := 9999.0
+    // סינון נרות חריגים: גם Sweep שנוצר על נר לא פרופורציונלי (למשל מניפולציה/ספייק) נפסל - ללא overhead נוסף
+    if is_bear_sweep or is_bull_sweep
+        if outlier_vs_atr or outlier_vs_trend
+            is_bull_sweep := false
+            is_bear_sweep := false
     if is_bear_sweep or is_bull_sweep
         string v_str = best_vol_dev >= 0 ? '+' + str.tostring(best_vol_dev, '#.0') : str.tostring(best_vol_dev, '#.0')
         string l_str = best_ltf_dev >= 0 ? '+' + str.tostring(best_ltf_dev, '#.0') : str.tostring(best_ltf_dev, '#.0')
