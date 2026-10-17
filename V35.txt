@@ -1,5 +1,5 @@
 //@version=6
-indicator('Professional S/R & ATR Optimized Trendlines V36 + S/R Merge Fix', overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 500)
+indicator('Professional S/R & ATR Optimized Trendlines V37 + S/R Merge Fix (CE10271 patch)', overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 500)
 color_res_market = #c23131
 color_sup_market = #0a846d
 color_bear_trend = #c23131
@@ -284,30 +284,6 @@ clear_all_labels() =>
         for i = 0 to fb_size - 1 by 1
             box.delete(array.get(fvg_boxes, i).bx)
         array.clear(fvg_boxes)
-// V36: Merge a pending pivot level into an existing zone (geometric union + touch count)
-merge_zone_with_pivot(Zone z, float p_val, int bIndex) =>
-    z.top := math.max(z.top, p_val)
-    z.bottom := math.min(z.bottom, p_val)
-    z.touches := z.touches + 1
-    z.last_touch_bar := bar_index
-    if bIndex < z.start_bar
-        z.start_bar := bIndex
-        box.set_left(z.bx, bIndex)
-    update_zone_visuals(z)
-update_zone_visuals(Zone z) =>
-    if not na(z.bx)
-        color base_color = z.is_res ? color_res_market : color_sup_market
-        int new_transp = math.max(20, 85 - (z.touches * 15))
-        box.set_top(z.bx, z.top)
-        box.set_bottom(z.bx, z.bottom)
-        if z.is_active
-            box.set_bgcolor(z.bx, color.new(base_color, new_transp))
-            box.set_border_color(z.bx, color.new(base_color, 40))
-            box.set_border_width(z.bx, math.min(z.touches, 4))
-            box.set_right(z.bx, bar_index + 20)
-        else
-            box.set_bgcolor(z.bx, color.new(color.white, 100))
-            box.set_border_color(z.bx, color.new(color.white, 100))
 find_best_trend(indices, values, is_resistance, current_atr, trend_start, min_slope, max_len) =>
     line best_l = na
     int max_right_score = -1
@@ -811,7 +787,20 @@ if size_pending_high > 0
                 // V36 FIX: overlap test uses ONLY the pivot's own ATR band (no full-candle range), so a wide candle no longer merges unrelated levels
                 bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
                 if zone_overlaps
-                    merge_zone_with_pivot(z, p_val, bIndex)
+                    // V36 FIX (inline): geometric union of pivot level into existing zone
+                    z.top := math.max(z.top, p_val)
+                    z.bottom := math.min(z.bottom, p_val)
+                    z.touches := z.touches + 1
+                    z.last_touch_bar := bar_index
+                    if bIndex < z.start_bar
+                        z.start_bar := bIndex
+                        if not na(z.bx)
+                            box.set_left(z.bx, bIndex)
+                    if not na(z.bx)
+                        box.set_top(z.bx, z.top)
+                        box.set_bottom(z.bx, z.bottom)
+                        if z.is_active
+                            box.set_right(z.bx, bar_index + 20)
                     handled := true
                     break
         if not handled
@@ -822,7 +811,18 @@ if size_pending_high > 0
                     // V36 FIX: overlap test uses ONLY the pivot's own ATR band; geometric union via merge helper
                     bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
                     if zone_overlaps and z.is_res == is_res_type
-                        merge_zone_with_pivot(z, p_val, bIndex)
+                        // V36 FIX (inline): geometric union of pivot level into existing zone
+                        z.top := math.max(z.top, p_val)
+                        z.bottom := math.min(z.bottom, p_val)
+                        z.touches := z.touches + 1
+                        z.last_touch_bar := bar_index
+                        if bIndex < z.start_bar
+                            z.start_bar := bIndex
+                            if not na(z.bx)
+                                box.set_left(z.bx, bIndex)
+                        if not na(z.bx)
+                            box.set_top(z.bx, z.top)
+                            box.set_bottom(z.bx, z.bottom)
                         handled := true
                         break
         if not handled
@@ -881,7 +881,20 @@ if size_pending_low > 0
                 // V36 FIX: overlap test uses ONLY the pivot's own ATR band (no full-candle range), so a wide candle no longer merges unrelated levels
                 bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
                 if zone_overlaps
-                    merge_zone_with_pivot(z, p_val, bIndex)
+                    // V36 FIX (inline): geometric union of pivot level into existing zone
+                    z.top := math.max(z.top, p_val)
+                    z.bottom := math.min(z.bottom, p_val)
+                    z.touches := z.touches + 1
+                    z.last_touch_bar := bar_index
+                    if bIndex < z.start_bar
+                        z.start_bar := bIndex
+                        if not na(z.bx)
+                            box.set_left(z.bx, bIndex)
+                    if not na(z.bx)
+                        box.set_top(z.bx, z.top)
+                        box.set_bottom(z.bx, z.bottom)
+                        if z.is_active
+                            box.set_right(z.bx, bar_index + 20)
                     handled := true
                     break
         if not handled
@@ -892,7 +905,18 @@ if size_pending_low > 0
                     // V36 FIX: overlap test uses ONLY the pivot's own ATR band; geometric union via merge helper
                     bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
                     if zone_overlaps and z.is_res == is_res_type
-                        merge_zone_with_pivot(z, p_val, bIndex)
+                        // V36 FIX (inline): geometric union of pivot level into existing zone
+                        z.top := math.max(z.top, p_val)
+                        z.bottom := math.min(z.bottom, p_val)
+                        z.touches := z.touches + 1
+                        z.last_touch_bar := bar_index
+                        if bIndex < z.start_bar
+                            z.start_bar := bIndex
+                            if not na(z.bx)
+                                box.set_left(z.bx, bIndex)
+                        if not na(z.bx)
+                            box.set_top(z.bx, z.top)
+                            box.set_bottom(z.bx, z.bottom)
                         handled := true
                         break
         if not handled
@@ -1055,7 +1079,16 @@ while i_silent < size_silent_mem
     int bars_since_start = bar_index - z.start_bar
     if z.touches >= 2 and bars_since_start >= 10 or z.touches >= 3 and bars_since_start >= 5 or z.touches >= 4 and bars_since_start >= 30
         z.is_active := true
-        update_zone_visuals(z)
+        // V36 FIX (inline): activate visuals — was update_zone_visuals(z)
+        if not na(z.bx)
+            color base_color_a = z.is_res ? color_res_market : color_sup_market
+            int new_transp_a = math.max(20, 85 - (z.touches * 15))
+            box.set_top(z.bx, z.top)
+            box.set_bottom(z.bx, z.bottom)
+            box.set_bgcolor(z.bx, color.new(base_color_a, new_transp_a))
+            box.set_border_color(z.bx, color.new(base_color_a, 40))
+            box.set_border_width(z.bx, math.min(z.touches, 4))
+            box.set_right(z.bx, bar_index + 20)
         array.push(active_zones, z)
         array.remove(silent_memory, i_silent)
         size_silent_mem := size_silent_mem - 1
@@ -1073,7 +1106,16 @@ while i_active < size_active_zones
             z.is_flipped := true
             z.touches := 1
             z.break_count := 0
-            update_zone_visuals(z)
+            // V36 FIX (inline): flip visuals — was update_zone_visuals(z)
+            if not na(z.bx)
+                color base_color_f = z.is_res ? color_res_market : color_sup_market
+                int new_transp_f = math.max(20, 85 - (z.touches * 15))
+                box.set_top(z.bx, z.top)
+                box.set_bottom(z.bx, z.bottom)
+                box.set_bgcolor(z.bx, color.new(base_color_f, new_transp_f))
+                box.set_border_color(z.bx, color.new(base_color_f, 40))
+                box.set_border_width(z.bx, math.min(z.touches, 4))
+                box.set_right(z.bx, bar_index + 20)
             i_active := i_active + 1
             continue
         i_active := i_active + 1
@@ -1095,7 +1137,16 @@ while i_active < size_active_zones
                 float new_center_res = (zone_center + high) / 2.0
                 z.top := new_center_res + zone_half_width
                 z.bottom := new_center_res - zone_half_width
-            update_zone_visuals(z)
+            // V36 FIX (inline): touch-refresh visuals — was update_zone_visuals(z)
+            if not na(z.bx)
+                color base_color_t = z.is_res ? color_res_market : color_sup_market
+                int new_transp_t = math.max(20, 85 - (z.touches * 15))
+                box.set_top(z.bx, z.top)
+                box.set_bottom(z.bx, z.bottom)
+                box.set_bgcolor(z.bx, color.new(base_color_t, new_transp_t))
+                box.set_border_color(z.bx, color.new(base_color_t, 40))
+                box.set_border_width(z.bx, math.min(z.touches, 4))
+                box.set_right(z.bx, bar_index + 20)
         i_active := i_active + 1
 if array.size(active_zones) > max_active_zones
     box.delete(array.remove(active_zones, 0).bx)
@@ -2419,7 +2470,9 @@ plot(show_ema25  ? ema25  : na, title = 'EMA 25',  color = color_ema25,  linewid
 plot(show_ema50  ? ema50  : na, title = 'EMA 50',  color = color_ema50,  linewidth = 1)
 plot(show_ema200 ? ema200 : na, title = 'EMA 200', color = color_ema200, linewidth = 1)
 plot(show_vwap ? vwap_value : na, title = 'VWAP', color = color.yellow, linewidth = 2)
-plot(show_vwap_bands ? vwap_upper1 : na, title = 'VWAP +1σ', color = #00bcd4, style = plot.style_line, linewidth = 2)
-plot(show_vwap_bands ? vwap_lower1 : na, title = 'VWAP -1σ', color = #00bcd4, style = plot.style_line, linewidth = 2)
-plot(show_vwap_bands ? vwap_upper2 : na, title = 'VWAP +2σ', color = #9c27b0, style = plot.style_line, linewidth = 2)
-plot(show_vwap_bands ? vwap_lower2 : na, title = 'VWAP -2σ', color = #9c27b0, style = plot.style_line, linewidth = 2)
+// V37: dotted-line LOOK for sigma bands. Pine V6 has NO code-level Dotted style; TradingView's STYLE-tab sub-option (Solid/Dashed/Dotted) is user-only. Emulation: draw on even bars only + linebr breaks at every na => dotted appearance. Scoring still uses full values above (lines 94-97), unaffected.
+bool vwap_band_on = bar_index % 2 == 0
+plot(show_vwap_bands and vwap_band_on ? vwap_upper1 : na, title = 'VWAP +1σ', color = #00bcd4, style = plot.style_linebr, linewidth = 2)
+plot(show_vwap_bands and vwap_band_on ? vwap_lower1 : na, title = 'VWAP -1σ', color = #00bcd4, style = plot.style_linebr, linewidth = 2)
+plot(show_vwap_bands and vwap_band_on ? vwap_upper2 : na, title = 'VWAP +2σ', color = #9c27b0, style = plot.style_linebr, linewidth = 2)
+plot(show_vwap_bands and vwap_band_on ? vwap_lower2 : na, title = 'VWAP -2σ', color = #9c27b0, style = plot.style_linebr, linewidth = 2)
