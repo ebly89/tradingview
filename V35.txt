@@ -1,5 +1,5 @@
 //@version=6
-indicator('Professional S/R & ATR Optimized Trendlines V35 + Outlier Candle Filter', overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 500)
+indicator('Professional S/R & ATR Optimized Trendlines V36 + S/R Merge Fix', overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 500)
 color_res_market = #c23131
 color_sup_market = #0a846d
 color_bear_trend = #c23131
