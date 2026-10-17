@@ -123,3 +123,11 @@ res=#c23131, sup=#0a846d, bear=#c23131, bull=#0a846d, choch=white 30%, liq/vp_bu
 - Duplicate variable name 'size_ha_high_init' style scoping fine in Pine
 - VP boxes array used by confluence even though invisible
 - No plot/plotshape for signals besides AI_STATUS/AI_FP; alerts would need alertcondition (none present!)
+
+## V36 changes (S/R merge fixes) — applied on top of V35 in V35.txt
+1. NEW function `merge_zone_with_pivot(Zone z, float p_val, int bIndex)` (line ~287, after clear_all_labels, before update_zone_visuals): geometric union (top=max, bottom=min), touches+1, last_touch_bar, extends box left if older pivot, calls update_zone_visuals.
+2. In both pending loops (high & low): overlap test now ONLY `zone_overlaps` (pivot ATR band vs zone) — removed `candle_intersects` (full candle range) which caused over-merging; merged via helper (was touch-count only). 4 call sites.
+3. `last_confirmed_ph/pl_price/rsi` updated ONLY when `i == size_pending_* - 1` (newest pivot) — was overwritten by every element incl. oldest.
+4. Removed now-unused `int offset = bar_index - bIndex` locals (2x). No other refs to [offset].
+5. Title bumped to 'V36 + S/R Merge Fix'. NOTE: local file had reverted VWAP bands to plain style_line/full-value vars (no _v dotted hack) relative to cd5e927 — scoring uses full values, plots solid LINE lw=2 (user sets Dotted in STYLE tab manually).
+Commits: 7dcce14 (fixes), 280513b (offset cleanup), 7768b7e (title). File CRLF, 2425 lines, git clean.
