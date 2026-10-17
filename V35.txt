@@ -775,7 +775,6 @@ if size_pending_high > 0
         int bIndex = array.get(pending_high_idx, i)
         float bPrice = array.get(pending_high_price, i)
         float bRsi = array.get(pending_high_rsi, i)
-        int offset = bar_index - bIndex
         // V36 FIX: update last_confirmed_* only for the NEWEST pending pivot (loop runs oldest->newest)
         if i == size_pending_high - 1
             last_confirmed_ph_price := bPrice
@@ -846,7 +845,6 @@ if size_pending_low > 0
         int bIndex = array.get(pending_low_idx, i)
         float bPrice = array.get(pending_low_price, i)
         float bRsi = array.get(pending_low_rsi, i)
-        int offset = bar_index - bIndex
         // V36 FIX: update last_confirmed_* only for the NEWEST pending pivot (loop runs oldest->newest)
         if i == size_pending_low - 1
             last_confirmed_pl_price := bPrice
