@@ -90,17 +90,11 @@ vwap_cum_vol_price2 := vwap_cum_vol_price2 + volume * vwap_tp * vwap_tp
 float vwap_value = vwap_cum_vol > 0 ? vwap_cum_vol_price / vwap_cum_vol : vwap_tp
 float vwap_variance = vwap_cum_vol > 0 ? (vwap_cum_vol_price2 / vwap_cum_vol) - (vwap_value * vwap_value) : 0.0
 float vwap_std_raw = math.sqrt(math.max(0.0, vwap_variance))
-// Dotted-line effect: draw the band on alternating bars (gap = dot spacing)
-bool vwap_band_on = bar_index % 2 == 0
 float vwap_std = vwap_std_raw
-float vwap_upper1_v = vwap_value + vwap_std_raw
-float vwap_lower1_v = vwap_value - vwap_std_raw
-float vwap_upper2_v = vwap_value + 2 * vwap_std_raw
-float vwap_lower2_v = vwap_value - 2 * vwap_std_raw
-float vwap_upper1 = vwap_band_on ? vwap_upper1_v : na
-float vwap_lower1 = vwap_band_on ? vwap_lower1_v : na
-float vwap_upper2 = vwap_band_on ? vwap_upper2_v : na
-float vwap_lower2 = vwap_band_on ? vwap_lower2_v : na
+float vwap_upper1 = vwap_value + vwap_std_raw
+float vwap_lower1 = vwap_value - vwap_std_raw
+float vwap_upper2 = vwap_value + 2 * vwap_std_raw
+float vwap_lower2 = vwap_value - 2 * vwap_std_raw
 ha_trueTicker = ticker.new(syminfo.prefix, syminfo.ticker)
 [ha_trueOpen, ha_trueHigh, ha_trueLow, ha_trueClose] = request.security(ha_trueTicker, timeframe.period, [open, high, low, close])
 ha_atrSeries = ta.atr(ha_internalAtrLength)
@@ -290,6 +284,16 @@ clear_all_labels() =>
         for i = 0 to fb_size - 1 by 1
             box.delete(array.get(fvg_boxes, i).bx)
         array.clear(fvg_boxes)
+// V36: Merge a pending pivot level into an existing zone (geometric union + touch count)
+merge_zone_with_pivot(Zone z, float p_val, int bIndex) =>
+    z.top := math.max(z.top, p_val)
+    z.bottom := math.min(z.bottom, p_val)
+    z.touches := z.touches + 1
+    z.last_touch_bar := bar_index
+    if bIndex < z.start_bar
+        z.start_bar := bIndex
+        box.set_left(z.bx, bIndex)
+    update_zone_visuals(z)
 update_zone_visuals(Zone z) =>
     if not na(z.bx)
         color base_color = z.is_res ? color_res_market : color_sup_market
@@ -772,8 +776,10 @@ if size_pending_high > 0
         float bPrice = array.get(pending_high_price, i)
         float bRsi = array.get(pending_high_rsi, i)
         int offset = bar_index - bIndex
-        last_confirmed_ph_price := bPrice
-        last_confirmed_ph_rsi := bRsi
+        // V36 FIX: update last_confirmed_* only for the NEWEST pending pivot (loop runs oldest->newest)
+        if i == size_pending_high - 1
+            last_confirmed_ph_price := bPrice
+            last_confirmed_ph_rsi := bRsi
         if not na(pre_div_bear_label)
             label.delete(pre_div_bear_label)
         pre_div_bear_label := na
@@ -803,12 +809,10 @@ if size_pending_high > 0
         if size_active > 0
             for j = 0 to size_active - 1 by 1
                 Zone z = array.get(active_zones, j)
-                bool candle_intersects = high[offset] >= z.bottom and low[offset] <= z.top
+                // V36 FIX: overlap test uses ONLY the pivot's own ATR band (no full-candle range), so a wide candle no longer merges unrelated levels
                 bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
-                if candle_intersects or zone_overlaps
-                    z.touches := z.touches + 1
-                    z.last_touch_bar := bar_index
-                    update_zone_visuals(z)
+                if zone_overlaps
+                    merge_zone_with_pivot(z, p_val, bIndex)
                     handled := true
                     break
         if not handled
@@ -816,11 +820,10 @@ if size_pending_high > 0
             if size_silent > 0
                 for j = 0 to size_silent - 1 by 1
                     Zone z = array.get(silent_memory, size_silent - 1 - j)
-                    bool candle_intersects = high[offset] >= z.bottom and low[offset] <= z.top
+                    // V36 FIX: overlap test uses ONLY the pivot's own ATR band; geometric union via merge helper
                     bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
-                    if (candle_intersects or zone_overlaps) and z.is_res == is_res_type
-                        z.touches := z.touches + 1
-                        z.last_touch_bar := bar_index
+                    if zone_overlaps and z.is_res == is_res_type
+                        merge_zone_with_pivot(z, p_val, bIndex)
                         handled := true
                         break
         if not handled
@@ -844,8 +847,10 @@ if size_pending_low > 0
         float bPrice = array.get(pending_low_price, i)
         float bRsi = array.get(pending_low_rsi, i)
         int offset = bar_index - bIndex
-        last_confirmed_pl_price := bPrice
-        last_confirmed_pl_rsi := bRsi
+        // V36 FIX: update last_confirmed_* only for the NEWEST pending pivot (loop runs oldest->newest)
+        if i == size_pending_low - 1
+            last_confirmed_pl_price := bPrice
+            last_confirmed_pl_rsi := bRsi
         if not na(pre_div_bull_label)
             label.delete(pre_div_bull_label)
         pre_div_bull_label := na
@@ -875,12 +880,10 @@ if size_pending_low > 0
         if size_active > 0
             for j = 0 to size_active - 1 by 1
                 Zone z = array.get(active_zones, j)
-                bool candle_intersects = high[offset] >= z.bottom and low[offset] <= z.top
+                // V36 FIX: overlap test uses ONLY the pivot's own ATR band (no full-candle range), so a wide candle no longer merges unrelated levels
                 bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
-                if candle_intersects or zone_overlaps
-                    z.touches := z.touches + 1
-                    z.last_touch_bar := bar_index
-                    update_zone_visuals(z)
+                if zone_overlaps
+                    merge_zone_with_pivot(z, p_val, bIndex)
                     handled := true
                     break
         if not handled
@@ -888,11 +891,10 @@ if size_pending_low > 0
             if size_silent > 0
                 for j = 0 to size_silent - 1 by 1
                     Zone z = array.get(silent_memory, size_silent - 1 - j)
-                    bool candle_intersects = high[offset] >= z.bottom and low[offset] <= z.top
+                    // V36 FIX: overlap test uses ONLY the pivot's own ATR band; geometric union via merge helper
                     bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
-                    if (candle_intersects or zone_overlaps) and z.is_res == is_res_type
-                        z.touches := z.touches + 1
-                        z.last_touch_bar := bar_index
+                    if zone_overlaps and z.is_res == is_res_type
+                        merge_zone_with_pivot(z, p_val, bIndex)
                         handled := true
                         break
         if not handled
@@ -2176,14 +2178,14 @@ if show_setups
                 vwap_score := vwap_score + 5
             else if not is_long and close <= vwap_value
                 vwap_score := vwap_score + 5
-        bool sigma1_lower_touch = low <= vwap_lower1_v + vwap_touch_tol and high >= vwap_lower1_v - vwap_touch_tol
-        bool sigma1_upper_touch = low <= vwap_upper1_v + vwap_touch_tol and high >= vwap_upper1_v - vwap_touch_tol
+        bool sigma1_lower_touch = low <= vwap_lower1 + vwap_touch_tol and high >= vwap_lower1 - vwap_touch_tol
+        bool sigma1_upper_touch = low <= vwap_upper1 + vwap_touch_tol and high >= vwap_upper1 - vwap_touch_tol
         if is_long and sigma1_lower_touch
             vwap_score := vwap_score + 3
         else if not is_long and sigma1_upper_touch
             vwap_score := vwap_score + 3
-        bool sigma2_lower_touch = low <= vwap_lower2_v + vwap_touch_tol and high >= vwap_lower2_v - vwap_touch_tol
-        bool sigma2_upper_touch = low <= vwap_upper2_v + vwap_touch_tol and high >= vwap_upper2_v - vwap_touch_tol
+        bool sigma2_lower_touch = low <= vwap_lower2 + vwap_touch_tol and high >= vwap_lower2 - vwap_touch_tol
+        bool sigma2_upper_touch = low <= vwap_upper2 + vwap_touch_tol and high >= vwap_upper2 - vwap_touch_tol
         if is_long and sigma2_lower_touch
             vwap_score := vwap_score + 5
         else if not is_long and sigma2_upper_touch
@@ -2419,7 +2421,7 @@ plot(show_ema25  ? ema25  : na, title = 'EMA 25',  color = color_ema25,  linewid
 plot(show_ema50  ? ema50  : na, title = 'EMA 50',  color = color_ema50,  linewidth = 1)
 plot(show_ema200 ? ema200 : na, title = 'EMA 200', color = color_ema200, linewidth = 1)
 plot(show_vwap ? vwap_value : na, title = 'VWAP', color = color.yellow, linewidth = 2)
-plot(show_vwap_bands ? vwap_upper1 : na, title = 'VWAP +1σ', color = #00bcd4, style = plot.style_linebr, linewidth = 2)
-plot(show_vwap_bands ? vwap_lower1 : na, title = 'VWAP -1σ', color = #00bcd4, style = plot.style_linebr, linewidth = 2)
-plot(show_vwap_bands ? vwap_upper2 : na, title = 'VWAP +2σ', color = #9c27b0, style = plot.style_linebr, linewidth = 2)
-plot(show_vwap_bands ? vwap_lower2 : na, title = 'VWAP -2σ', color = #9c27b0, style = plot.style_linebr, linewidth = 2)
+plot(show_vwap_bands ? vwap_upper1 : na, title = 'VWAP +1σ', color = #00bcd4, style = plot.style_line, linewidth = 2)
+plot(show_vwap_bands ? vwap_lower1 : na, title = 'VWAP -1σ', color = #00bcd4, style = plot.style_line, linewidth = 2)
+plot(show_vwap_bands ? vwap_upper2 : na, title = 'VWAP +2σ', color = #9c27b0, style = plot.style_line, linewidth = 2)
+plot(show_vwap_bands ? vwap_lower2 : na, title = 'VWAP -2σ', color = #9c27b0, style = plot.style_line, linewidth = 2)
