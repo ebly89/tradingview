@@ -1,5 +1,11 @@
 # V34 — Professional S/R & ATR Optimized Trendlines (Pine v6) — סיכום למפתח
 
+## V39 UPDATE (Giant Zone Fix) - applied on /workspace/V35.txt
+- Root cause of "giant zones covering the chart": V38's merge test unioned the CURRENT BAR high/low into the overlap check (`math.max(potential_top, high) >= z.bottom and math.min(potential_bottom, low) <= z.top`). On tall bars this matched distant zones; each match then unioned the pivot price into the zone, and chained merges grew zones without bound.
+- FIX: reverted all 4 pending-pivot overlap tests to V34 semantics: `potential_top >= z.bottom and potential_bottom <= z.top` (+ same-type guard in silent loop). Pivot-bar candle range is NOT part of the merge test anymore.
+- GUARD added at all 4 geometric-union sites: merged zone height capped at `max_zone_height = atr_val * atr_zone_mult` (2x the initial band); if exceeded, zone re-centered on its midpoint. Declared before use inside both pending loops (no Undeclared identifier). O(1), no new arrays/security calls.
+- Retained from V37/V38: flip-without-instant-delete, touch resets break_count, weakest-zone eviction, sr stats fix. Title -> 'V39 + Giant Zone Fix'. CRLF preserved. git diff vs HEAD: +35/-9 lines.
+
 ## V35 UPDATE (Outlier Candle Filter) - applied on top of V34 (in /workspace/V34.txt)
 - New input group 'Outlier Candle Filter': show_outlier_filter (bool, default true), outlier_atr_mult (2.5), outlier_range_mult (8.0), outlier_body_pct_min (55.0).
 - Block inserted right before pattern detection (~line 1739): ha_atr_val = ta.atr(ha_internalAtrLength) (3rd ATR call site -> Pine reuses buffer #2, zero extra cost), candle_true_rng (True Range vs close[1]), three criteria:
