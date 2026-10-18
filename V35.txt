@@ -2505,7 +2505,9 @@ plot(show_ema25  ? ema25  : na, title = 'EMA 25',  color = color_ema25,  linewid
 plot(show_ema50  ? ema50  : na, title = 'EMA 50',  color = color_ema50,  linewidth = 1)
 plot(show_ema200 ? ema200 : na, title = 'EMA 200', color = color_ema200, linewidth = 1)
 plot(show_vwap ? vwap_value : na, title = 'VWAP', color = color.yellow, linewidth = 2)
-plot(show_vwap_bands ? vwap_upper1 : na, title = 'VWAP +1σ', color = #00bcd4, style = plot.style_line, linewidth = 2)
-plot(show_vwap_bands ? vwap_lower1 : na, title = 'VWAP -1σ', color = #00bcd4, style = plot.style_line, linewidth = 2)
-plot(show_vwap_bands ? vwap_upper2 : na, title = 'VWAP +2σ', color = #9c27b0, style = plot.style_line, linewidth = 2)
-plot(show_vwap_bands ? vwap_lower2 : na, title = 'VWAP -2σ', color = #9c27b0, style = plot.style_line, linewidth = 2)
+// V37: dotted-line LOOK for sigma bands. Pine V6 has NO code-level Dotted style; TradingView's STYLE-tab sub-option (Solid/Dashed/Dotted) is user-only. Emulation: draw on even bars only + linebr breaks at every na => dotted appearance. Scoring still uses full values above (lines 94-97), unaffected.
+bool vwap_band_on = bar_index % 2 == 0
+plot(show_vwap_bands and vwap_band_on ? vwap_upper1 : na, title = 'VWAP +1σ', color = #00bcd4, style = plot.style_linebr, linewidth = 2)
+plot(show_vwap_bands and vwap_band_on ? vwap_lower1 : na, title = 'VWAP -1σ', color = #00bcd4, style = plot.style_linebr, linewidth = 2)
+plot(show_vwap_bands and vwap_band_on ? vwap_upper2 : na, title = 'VWAP +2σ', color = #9c27b0, style = plot.style_linebr, linewidth = 2)
+plot(show_vwap_bands and vwap_band_on ? vwap_lower2 : na, title = 'VWAP -2σ', color = #9c27b0, style = plot.style_linebr, linewidth = 2)
