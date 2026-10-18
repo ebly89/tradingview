@@ -1,5 +1,5 @@
 //@version=6
-indicator('Professional S/R & ATR Optimized Trendlines V39 + Giant Zone Fix', overlay = true, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
+indicator('Professional S/R & ATR Optimized Trendlines V40 + Pivot-Bar Merge Fix', overlay = true, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
 color_res_market = #c23131
 color_sup_market = #0a846d
 color_bear_trend = #c23131
@@ -745,6 +745,28 @@ if ha_scanLowNow
             array.shift(ha_lowPrices)
             array.shift(ha_lowLabels)
             array.shift(ha_lowRSI)
+
+// V40 FIX: pivot-bar candle range helper. The original V34 merge test used high[offset]/low[offset]
+// (the CURRENT bar's range), which merged zones whenever the current price crossed an old zone -
+// that caused chained unions and giant full-chart bands. Correct semantics: use the PIVOT BAR's own
+// high/low (fetched by bar index via dynamic indexing). Two pivots on the same/nearby bars now share
+// the same candle range -> they always merge into ONE zone. Bounded growth is guaranteed because the
+// geometric union below only ever adds p_val (which lies inside [pivot_low, pivot_high]) to the zone,
+// so a merged zone can never exceed its pivot bar's candle height.
+float pivot_bar_high(int bIdx)
+    float res = na
+    int off = bar_index - bIdx
+    if off >= 0 and off <= 500
+        res := high[off]
+    res
+
+float pivot_bar_low(int bIdx)
+    float res = na
+    int off = bar_index - bIdx
+    if off >= 0 and off <= 500
+        res := low[off]
+    res
+
 int size_pending_high = array.size(pending_high_idx)
 if size_pending_high > 0
     for i = 0 to size_pending_high - 1 by 1
@@ -780,24 +802,19 @@ if size_pending_high > 0
         float half_width = (atr_val * atr_zone_mult) / 2
         float potential_top = p_val + half_width
         float potential_bottom = p_val - half_width
-        float max_zone_height = atr_val * atr_zone_mult
         int size_active = array.size(active_zones)
         if size_active > 0
             for j = 0 to size_active - 1 by 1
                 Zone z = array.get(active_zones, j)
-                // V39 FIX: overlap = pivot ATR-band vs zone only (V34 semantics).
-                // V38 mistakenly unioned the CURRENT BAR's high/low into the test - a tall bar then
-                // "overlapped" distant zones and chained unions created giant full-chart bands.
+                // V40 FIX: overlap = pivot ATR-band OR pivot-BAR candle vs zone (not current bar!)
+                float pv_h = pivot_bar_high(bIndex)
+                float pv_l = pivot_bar_low(bIndex)
+                bool candle_intersects = not na(pv_h) and not na(pv_l) and pv_h >= z.bottom and pv_l <= z.top
                 bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
-                if zone_overlaps
+                if zone_overlaps or candle_intersects
                     // V36 FIX (inline): geometric union of pivot level into existing zone
                     z.top := math.max(z.top, p_val)
                     z.bottom := math.min(z.bottom, p_val)
-                    // V39 GUARD: merged zone height capped at 2x ATR band - prevents runaway growth
-                    if z.top - z.bottom > max_zone_height
-                        float zc = (z.top + z.bottom) / 2.0
-                        z.top := zc + max_zone_height / 2.0
-                        z.bottom := zc - max_zone_height / 2.0
                     z.touches := z.touches + 1
                     z.last_touch_bar := bar_index
                     if bIndex < z.start_bar
@@ -816,17 +833,15 @@ if size_pending_high > 0
             if size_silent > 0
                 for j = 0 to size_silent - 1 by 1
                     Zone z = array.get(silent_memory, size_silent - 1 - j)
-                    // V39 FIX: overlap = pivot ATR-band vs zone only (V34 semantics); same-type merge only
+                    // V40 FIX: pivot ATR-band OR pivot-BAR candle; same-type merge only
+                    float pv_h_s = pivot_bar_high(bIndex)
+                    float pv_l_s = pivot_bar_low(bIndex)
+                    bool candle_intersects_s = not na(pv_h_s) and not na(pv_l_s) and pv_h_s >= z.bottom and pv_l_s <= z.top
                     bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top and z.is_res == is_res_type
-                    if zone_overlaps
+                    if zone_overlaps or candle_intersects_s
                         // V36 FIX (inline): geometric union of pivot level into existing zone
                         z.top := math.max(z.top, p_val)
                         z.bottom := math.min(z.bottom, p_val)
-                        // V39 GUARD: merged zone height capped at 2x ATR band - prevents runaway growth
-                        if z.top - z.bottom > max_zone_height
-                            float zc = (z.top + z.bottom) / 2.0
-                            z.top := zc + max_zone_height / 2.0
-                            z.bottom := zc - max_zone_height / 2.0
                         z.touches := z.touches + 1
                         z.last_touch_bar := bar_index
                         if bIndex < z.start_bar
@@ -887,24 +902,19 @@ if size_pending_low > 0
         float half_width = (atr_val * atr_zone_mult) / 2
         float potential_top = p_val + half_width
         float potential_bottom = p_val - half_width
-        float max_zone_height = atr_val * atr_zone_mult
         int size_active = array.size(active_zones)
         if size_active > 0
             for j = 0 to size_active - 1 by 1
                 Zone z = array.get(active_zones, j)
-                // V39 FIX: overlap = pivot ATR-band vs zone only (V34 semantics).
-                // V38 mistakenly unioned the CURRENT BAR's high/low into the test - a tall bar then
-                // "overlapped" distant zones and chained unions created giant full-chart bands.
+                // V40 FIX: overlap = pivot ATR-band OR pivot-BAR candle vs zone (not current bar!)
+                float pv_h = pivot_bar_high(bIndex)
+                float pv_l = pivot_bar_low(bIndex)
+                bool candle_intersects = not na(pv_h) and not na(pv_l) and pv_h >= z.bottom and pv_l <= z.top
                 bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
-                if zone_overlaps
+                if zone_overlaps or candle_intersects
                     // V36 FIX (inline): geometric union of pivot level into existing zone
                     z.top := math.max(z.top, p_val)
                     z.bottom := math.min(z.bottom, p_val)
-                    // V39 GUARD: merged zone height capped at 2x ATR band - prevents runaway growth
-                    if z.top - z.bottom > max_zone_height
-                        float zc = (z.top + z.bottom) / 2.0
-                        z.top := zc + max_zone_height / 2.0
-                        z.bottom := zc - max_zone_height / 2.0
                     z.touches := z.touches + 1
                     z.last_touch_bar := bar_index
                     if bIndex < z.start_bar
@@ -923,17 +933,15 @@ if size_pending_low > 0
             if size_silent > 0
                 for j = 0 to size_silent - 1 by 1
                     Zone z = array.get(silent_memory, size_silent - 1 - j)
-                    // V39 FIX: overlap = pivot ATR-band vs zone only (V34 semantics); same-type merge only
+                    // V40 FIX: pivot ATR-band OR pivot-BAR candle; same-type merge only
+                    float pv_h_s = pivot_bar_high(bIndex)
+                    float pv_l_s = pivot_bar_low(bIndex)
+                    bool candle_intersects_s = not na(pv_h_s) and not na(pv_l_s) and pv_h_s >= z.bottom and pv_l_s <= z.top
                     bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top and z.is_res == is_res_type
-                    if zone_overlaps
+                    if zone_overlaps or candle_intersects_s
                         // V36 FIX (inline): geometric union of pivot level into existing zone
                         z.top := math.max(z.top, p_val)
                         z.bottom := math.min(z.bottom, p_val)
-                        // V39 GUARD: merged zone height capped at 2x ATR band - prevents runaway growth
-                        if z.top - z.bottom > max_zone_height
-                            float zc = (z.top + z.bottom) / 2.0
-                            z.top := zc + max_zone_height / 2.0
-                            z.bottom := zc - max_zone_height / 2.0
                         z.touches := z.touches + 1
                         z.last_touch_bar := bar_index
                         if bIndex < z.start_bar
