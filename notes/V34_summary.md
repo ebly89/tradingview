@@ -131,3 +131,12 @@ res=#c23131, sup=#0a846d, bear=#c23131, bull=#0a846d, choch=white 30%, liq/vp_bu
 4. Removed now-unused `int offset = bar_index - bIndex` locals (2x). No other refs to [offset].
 5. Title bumped to 'V36 + S/R Merge Fix'. NOTE: local file had reverted VWAP bands to plain style_line/full-value vars (no _v dotted hack) relative to cd5e927 — scoring uses full values, plots solid LINE lw=2 (user sets Dotted in STYLE tab manually).
 Commits: 7dcce14 (fixes), 280513b (offset cleanup), 7768b7e (title). File CRLF, 2425 lines, git clean.
+
+## V38 — Zone Merge Overlap Restored (2026-10-18)
+Root cause of overlapping non-merging zones: V36 FIX had narrowed the overlap test to ONLY the pivot's ATR band vs zone top/bottom, dropping V34's candle-range component -> levels sharing candles no longer merged.
+Changes in V35.txt (now titled V38):
+1. Overlap test restored at 4 sites (pending high/low x active/silent loops): `math.max(potential_top, high) >= z.bottom and math.min(potential_bottom, low) <= z.top` (ATR-band UNION candle range). Silent-memory sites keep same-type check (`z.is_res == is_res_type` folded into condition); active-zone loops remain any-type (pre-existing behavior).
+2. Stats touch loop (~line 1011): two-sided full-candle overlap test; NO touches increment here (avoids double-count with management loop at ~1139 which already does exact touch + break_count reset).
+3. Silent & active break tests now require NOT touched: `touched_zone_s/a = low<=top and high>=bottom`; break only if close beyond boundary AND candle doesn't overlap zone body.
+Perf: O(1)/bar extra comparisons; no new security calls/arrays/var series. All identifiers declared before use (touch_tol L980, buy/sell_pct_ltf L960-961, sr arrays L191-192, colors L3-4).
+Known accepted quirks: flip-flop on repeated breaks; stale flipped zones w/o touch (no TTL for active zones); max_active_zones hardcoded 6; silent res/sup caps 50 each.

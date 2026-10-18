@@ -1,5 +1,5 @@
 //@version=6
-indicator('Professional S/R & ATR Optimized Trendlines V37 + Zone Break/Flip Logic Fix', overlay = true, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
+indicator('Professional S/R & ATR Optimized Trendlines V38 + Zone Merge Overlap Restored', overlay = true, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
 color_res_market = #c23131
 color_sup_market = #0a846d
 color_bear_trend = #c23131
@@ -784,8 +784,8 @@ if size_pending_high > 0
         if size_active > 0
             for j = 0 to size_active - 1 by 1
                 Zone z = array.get(active_zones, j)
-                // V36 FIX: overlap test uses ONLY the pivot's own ATR band (no full-candle range), so a wide candle no longer merges unrelated levels
-                bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
+                // V38 FIX: overlap = pivot ATR-band UNION candle-range vs zone (restores V34 merging)
+                bool zone_overlaps = math.max(potential_top, high) >= z.bottom and math.min(potential_bottom, low) <= z.top
                 if zone_overlaps
                     // V36 FIX (inline): geometric union of pivot level into existing zone
                     z.top := math.max(z.top, p_val)
@@ -808,9 +808,9 @@ if size_pending_high > 0
             if size_silent > 0
                 for j = 0 to size_silent - 1 by 1
                     Zone z = array.get(silent_memory, size_silent - 1 - j)
-                    // V36 FIX: overlap test uses ONLY the pivot's own ATR band; geometric union via merge helper
-                    bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
-                    if zone_overlaps and z.is_res == is_res_type
+                    // V38 FIX: overlap = pivot ATR-band UNION candle-range vs zone (restores V34 merging); same-type merge only
+                    bool zone_overlaps = math.max(potential_top, high) >= z.bottom and math.min(potential_bottom, low) <= z.top and z.is_res == is_res_type
+                    if zone_overlaps
                         // V36 FIX (inline): geometric union of pivot level into existing zone
                         z.top := math.max(z.top, p_val)
                         z.bottom := math.min(z.bottom, p_val)
@@ -878,8 +878,8 @@ if size_pending_low > 0
         if size_active > 0
             for j = 0 to size_active - 1 by 1
                 Zone z = array.get(active_zones, j)
-                // V36 FIX: overlap test uses ONLY the pivot's own ATR band (no full-candle range), so a wide candle no longer merges unrelated levels
-                bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
+                // V38 FIX: overlap = pivot ATR-band UNION candle-range vs zone (restores V34 merging)
+                bool zone_overlaps = math.max(potential_top, high) >= z.bottom and math.min(potential_bottom, low) <= z.top
                 if zone_overlaps
                     // V36 FIX (inline): geometric union of pivot level into existing zone
                     z.top := math.max(z.top, p_val)
@@ -902,9 +902,9 @@ if size_pending_low > 0
             if size_silent > 0
                 for j = 0 to size_silent - 1 by 1
                     Zone z = array.get(silent_memory, size_silent - 1 - j)
-                    // V36 FIX: overlap test uses ONLY the pivot's own ATR band; geometric union via merge helper
-                    bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
-                    if zone_overlaps and z.is_res == is_res_type
+                    // V38 FIX: overlap = pivot ATR-band UNION candle-range vs zone (restores V34 merging); same-type merge only
+                    bool zone_overlaps = math.max(potential_top, high) >= z.bottom and math.min(potential_bottom, low) <= z.top and z.is_res == is_res_type
+                    if zone_overlaps
                         // V36 FIX (inline): geometric union of pivot level into existing zone
                         z.top := math.max(z.top, p_val)
                         z.bottom := math.min(z.bottom, p_val)
@@ -1006,24 +1006,24 @@ if not na(choch_pivot_val) and trend_dir == -1
         if array.size(choch_low_vol_hist) > max_history_per_level
             array.shift(choch_low_vol_hist)
             array.shift(choch_low_ltf_hist)
+// V38 NOTE: עדכון touches/last_touch של אזורים פעילים מתבצע בלולאת ה-management למטה
+// (touch מדויק: low<=top and high>=bottom). הלולאה כאן אחראית רק על סטטיסטיקות volume/LTF.
 int size_az_hist = array.size(active_zones)
+bool sr_touch_logged = false
 if size_az_hist > 0
     for i = 0 to size_az_hist - 1 by 1
         Zone z = array.get(active_zones, i)
-        if z.is_res and high >= z.top - touch_tol
+        // V38 FIX: דיוק נגיעה לסטטיסטיקה = חפיפה בטווח הנר המלא (low..high) מול גבולות האזור.
+        // בעבר הבדיקה הייתה חד-צדדית (top בלבד ל-resistance / bottom בלבד לתמיכה), ולכן נרות
+        // שנכנסו לאזור מהצד השני לא נרשמו כלל בהיסטוריית הנפח של הרמה.
+        bool touched_zone = (z.is_res and low <= z.top and high >= z.bottom - touch_tol) or (not z.is_res and high >= z.bottom and low <= z.top + touch_tol)
+        if touched_zone and not sr_touch_logged
+            sr_touch_logged := true
             array.push(sr_vol_hist, volume)
-            array.push(sr_ltf_hist, buy_pct_ltf)
+            array.push(sr_ltf_hist, z.is_res ? buy_pct_ltf : sell_pct_ltf)
             if array.size(sr_vol_hist) > max_history_per_level
                 array.shift(sr_vol_hist)
                 array.shift(sr_ltf_hist)
-            break
-        if not z.is_res and low <= z.bottom + touch_tol
-            array.push(sr_vol_hist, volume)
-            array.push(sr_ltf_hist, sell_pct_ltf)
-            if array.size(sr_vol_hist) > max_history_per_level
-                array.shift(sr_vol_hist)
-                array.shift(sr_ltf_hist)
-            break
 bool new_pivot_added = (array.size(ha_highBars) != last_ha_high_size) or (array.size(ha_lowBars) != last_ha_low_size)
 last_ha_high_size := array.size(ha_highBars)
 last_ha_low_size := array.size(ha_lowBars)
@@ -1069,7 +1069,10 @@ int i_silent = 0
 int size_silent_mem = array.size(silent_memory)
 while i_silent < size_silent_mem
     Zone z = array.get(silent_memory, i_silent)
-    bool is_broken = (z.is_res and close > z.top) or (not z.is_res and close < z.bottom)
+    // V38 FIX: נגיעה (חפיפת low/high עם האזור) מאפסת את מונה הפריצות - בעבר break_count
+    // לא התאפס בשקט, ואזור שנפרץ-נגש-נפרץ במרווחים נמחק בטעות.
+    bool touched_zone_s = low <= z.top and high >= z.bottom
+    bool is_broken = not touched_zone_s and ((z.is_res and close > z.top) or (not z.is_res and close < z.bottom))
     z.break_count := is_broken ? z.break_count + 1 : 0
     if z.break_count >= 2 or bar_index - z.start_bar > max_silent_age
         box.delete(z.bx)
@@ -1100,11 +1103,14 @@ while i_silent < size_silent_mem
 // V37 FIX #3: אין מחיקת FIFO לפי אינדקס 0 (שמוחק את האזור הוותיק/החזק ביותר).
 // תחת זאת: אם חרגנו מהמכסה - נמחק רק האזור החלש (touches<=1) שהכי מזמן לא נוגע בו;
 // ואם כל האזורים חזקים - נמחק בכל זאת החלש/הישן ביותר כדי לא לחרוג ממגבלת 500 האובייקטים של TradingView.
+// V38 ADD: פריצה דורשת CLOSE מאושר מעבר לגבול המלא של האזור; נגיעה (חפיפת low/high עם גוף האזור)
+// היא אינה 'פריצה' אלא touch שמאפס את break_count - מונע flip/מחיקה שגויים של אזורי S/R חזקים.
 int i_active = 0
 int size_active_zones = array.size(active_zones)
 while i_active < size_active_zones
     Zone z = array.get(active_zones, i_active)
-    bool broke_now = (z.is_res and close > z.top) or (not z.is_res and close < z.bottom)
+    bool touched_zone_a = low <= z.top and high >= z.bottom
+    bool broke_now = not touched_zone_a and ((z.is_res and close > z.top) or (not z.is_res and close < z.bottom))
     if broke_now
         z.break_count := z.break_count + 1
         if z.break_count >= 2
