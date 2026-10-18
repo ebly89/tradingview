@@ -1,5 +1,5 @@
 //@version=6
-indicator('Professional S/R & ATR Optimized Trendlines V40 + Pivot-Bar Merge Fix', overlay = true, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
+indicator('Professional S/R & ATR Optimized Trendlines V40b + Pivot-Bar Merge Fix (CE10156 patch)', overlay = true, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
 color_res_market = #c23131
 color_sup_market = #0a846d
 color_bear_trend = #c23131
@@ -753,20 +753,9 @@ if ha_scanLowNow
 // the same candle range -> they always merge into ONE zone. Bounded growth is guaranteed because the
 // geometric union below only ever adds p_val (which lies inside [pivot_low, pivot_high]) to the zone,
 // so a merged zone can never exceed its pivot bar's candle height.
-float pivot_bar_high(int bIdx)
-    float res = na
-    int off = bar_index - bIdx
-    if off >= 0 and off <= 500
-        res := high[off]
-    res
-
-float pivot_bar_low(int bIdx)
-    float res = na
-    int off = bar_index - bIdx
-    if off >= 0 and off <= 500
-        res := low[off]
-    res
-
+// V40b FIX (CE10156): Pine v6 does NOT support user-defined functions -> the two helper
+// functions above were removed; the same logic is inlined at each call site using dynamic
+// history indexing with a local offset variable computed right before use.
 int size_pending_high = array.size(pending_high_idx)
 if size_pending_high > 0
     for i = 0 to size_pending_high - 1 by 1
@@ -807,8 +796,9 @@ if size_pending_high > 0
             for j = 0 to size_active - 1 by 1
                 Zone z = array.get(active_zones, j)
                 // V40 FIX: overlap = pivot ATR-band OR pivot-BAR candle vs zone (not current bar!)
-                float pv_h = pivot_bar_high(bIndex)
-                float pv_l = pivot_bar_low(bIndex)
+                int pv_off = bar_index - bIndex
+                float pv_h = pv_off >= 0 and pv_off <= 500 ? high[pv_off] : na
+                float pv_l = pv_off >= 0 and pv_off <= 500 ? low[pv_off] : na
                 bool candle_intersects = not na(pv_h) and not na(pv_l) and pv_h >= z.bottom and pv_l <= z.top
                 bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
                 if zone_overlaps or candle_intersects
@@ -834,8 +824,9 @@ if size_pending_high > 0
                 for j = 0 to size_silent - 1 by 1
                     Zone z = array.get(silent_memory, size_silent - 1 - j)
                     // V40 FIX: pivot ATR-band OR pivot-BAR candle; same-type merge only
-                    float pv_h_s = pivot_bar_high(bIndex)
-                    float pv_l_s = pivot_bar_low(bIndex)
+                    int pv_off_s = bar_index - bIndex
+                    float pv_h_s = pv_off_s >= 0 and pv_off_s <= 500 ? high[pv_off_s] : na
+                    float pv_l_s = pv_off_s >= 0 and pv_off_s <= 500 ? low[pv_off_s] : na
                     bool candle_intersects_s = not na(pv_h_s) and not na(pv_l_s) and pv_h_s >= z.bottom and pv_l_s <= z.top
                     bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top and z.is_res == is_res_type
                     if zone_overlaps or candle_intersects_s
@@ -907,8 +898,9 @@ if size_pending_low > 0
             for j = 0 to size_active - 1 by 1
                 Zone z = array.get(active_zones, j)
                 // V40 FIX: overlap = pivot ATR-band OR pivot-BAR candle vs zone (not current bar!)
-                float pv_h = pivot_bar_high(bIndex)
-                float pv_l = pivot_bar_low(bIndex)
+                int pv_off = bar_index - bIndex
+                float pv_h = pv_off >= 0 and pv_off <= 500 ? high[pv_off] : na
+                float pv_l = pv_off >= 0 and pv_off <= 500 ? low[pv_off] : na
                 bool candle_intersects = not na(pv_h) and not na(pv_l) and pv_h >= z.bottom and pv_l <= z.top
                 bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top
                 if zone_overlaps or candle_intersects
@@ -934,8 +926,9 @@ if size_pending_low > 0
                 for j = 0 to size_silent - 1 by 1
                     Zone z = array.get(silent_memory, size_silent - 1 - j)
                     // V40 FIX: pivot ATR-band OR pivot-BAR candle; same-type merge only
-                    float pv_h_s = pivot_bar_high(bIndex)
-                    float pv_l_s = pivot_bar_low(bIndex)
+                    int pv_off_s = bar_index - bIndex
+                    float pv_h_s = pv_off_s >= 0 and pv_off_s <= 500 ? high[pv_off_s] : na
+                    float pv_l_s = pv_off_s >= 0 and pv_off_s <= 500 ? low[pv_off_s] : na
                     bool candle_intersects_s = not na(pv_h_s) and not na(pv_l_s) and pv_h_s >= z.bottom and pv_l_s <= z.top
                     bool zone_overlaps = potential_top >= z.bottom and potential_bottom <= z.top and z.is_res == is_res_type
                     if zone_overlaps or candle_intersects_s
